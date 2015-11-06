@@ -1,3 +1,4 @@
+###--@--Young--@--###
 require "fileutils"
 class MentorSbuild
 
@@ -59,6 +60,7 @@ class MentorSbuild
                     if block
                         #p  "BLOCK:#{block.call dir_path}"
                         dir_c   << dir_path if block.call dir_path
+                        #p dir_path
                     else
                         dir_c   << dir_path
                     end
@@ -71,7 +73,7 @@ class MentorSbuild
                         dir_c   << dir_path
                     end
                 end
-                dir_c   = dir_c | collect_path(dir_path,ptype,rep,nil,nil)
+                dir_c   = dir_c | collect_path(dir_path,ptype,rep,rep_filter,block)
             else
                 nil
             end
@@ -87,6 +89,8 @@ class MentorSbuild
                 dir_ra = File::join(rp,ra)
                 next unless File::directory? dir_ra
                 rp_paths = collect_path(dir_ra,'file',/\.(?i:(v|vhd|sv))$/,rep_filter,block)
+                #p "#{ra}>>>>><<<<#{rep_filter}"
+                #p "--->#{rep_filter}"
                 module_and_files << [ra,rp_paths] unless rp_paths.empty?
             end
         end
@@ -108,13 +112,15 @@ class MentorSbuild
     def module_modified_files(fname,updata_modufied_time=false,work_paths,rep_filter)
         files_mtime_lines = []
         File::open(fname,'r'){|f| files_mtime_lines=f.readlines}
+        #p rep_filter
         collect_module_modified_files = module_and_files work_paths,rep_filter,proc_mt_cmp(files_mtime_lines)
+        #p collect_module_modified_files
         file_mt_ref(fname,files_mtime_lines,collect_module_modified_files) if updata_modufied_time
         return collect_module_modified_files
     end
 
     def rtl_module_files(files_method,updata_modufied_time)
-        files_method.call '.rtl_files_mtime.txt',updata_modufied_time,@rtl_work_paths,/((_bb\.)|(tb_.+\.(v|sv)$)|(_tb\.(v|sv)&))/
+        files_method.call '.rtl_files_mtime.txt',updata_modufied_time,@rtl_work_paths,/((_bb\.)|(tb_.+\.(v|sv)$)|(_tb\.(v|sv)$))/
     end
 
     def rtl_module_all_files(updata_modufied_time=false)
@@ -160,15 +166,19 @@ class MentorSbuild
         return lambda do |f_path|
             mt = File::mtime(f_path).to_s
             f_rep = Regexp.new(f_path+"\s+(.+)\s*")
-            rel = true
-            for each_line in tlines
-                #p "PATH:#{f_path}  LINE:#{each_line}"
-                md = each_line.match f_rep
-                if md
-                    rel = nil if (mt == md[1])
-                    break
+            rel = nil      #default: File has not be modified, It must not be collected
+            choise_line =  tlines.reject{|item| item !~ f_rep}.pop
+            if choise_line
+                f_rep =~ choise_line
+                if $1==mt # File has not be modified, It must not be collected
+                    rel = nil
+                else
+                    rel = true
                 end
+            else
+                rel = true  # File is new It must be collected
             end
+            #p rel
             return rel
         end
     end
@@ -278,7 +288,7 @@ class MentorSbuild
         elsif range==:modified
             #module_and_files_array = rtl_module_modified_files(true)
             module_and_files_array = send("#{tcl_type.to_s}_module_modified_files",true)
-            p module_and_files_array
+            #p module_and_files_array
         else
             module_and_files_array = nil
         end
@@ -374,7 +384,7 @@ class MentorSbuild
 
     def gen_modified_do
         type_modules_dofiles = gen_dos :modified
-
+        #p type_modules_dofiles
         do_str = ''
         type_modules_dofiles.each do |item|
             modules_size = item[1].size
@@ -397,6 +407,10 @@ class MentorSbuild
         ruby_file = File::join(@curr_script_path,"MentorSbuild.rb")
         ruby_do_file = File::join(@curr_script_path,"#{atype}.do")
         File::open(do_file,'w') do |f|
+            f.puts "echo #{'='*20}"
+            f.puts "echo CREATED BY --@--Young--@--"
+            f.puts "echo Have fun"
+            f.puts "echo #{'='*20}"
             f.puts "exec #{bat_file}"
             f.puts "do #{ruby_do_file}"
         end
@@ -435,17 +449,17 @@ msb = MentorSbuild.new
 if ARGV.empty?
     msb.gen_mentor_tcl :all
     msb.gen_mentor_tcl :modified
-    msb.gen_all_do
-    msb.gen_modified_do
+#    msb.gen_all_do
+#    msb.gen_modified_do
 elsif ARGV[0] == 'all'
-    msb.gen_mentor_tcl :all
+    #msb.gen_mentor_tcl :all
     msb.gen_all_do
 elsif ARGV[1] == "modified"
-    msb.gen_mentor_tcl :modified
+    #msb.gen_mentor_tcl :modified
     msb.gen_modified_do
 else
     msb.gen_mentor_tcl :all
     msb.gen_mentor_tcl :modified
-    msb.gen_all_do
+    #msb.gen_all_do
 end
 end
