@@ -120,7 +120,7 @@ class MentorSbuild
     end
 
     def rtl_module_files(files_method,updata_modufied_time)
-        files_method.call '.rtl_files_mtime.txt',updata_modufied_time,@rtl_work_paths,/((_bb\.)|(tb_.+\.(v|sv)$)|(_tb\.(v|sv)$))/
+        files_method.call File::join(@curr_script_path,'.rtl_files_mtime.txt'),updata_modufied_time,@rtl_work_paths,/((_bb\.)|(tb_.+\.(v|sv)$)|(_tb\.(v|sv)$))/
     end
 
     def rtl_module_all_files(updata_modufied_time=false)
@@ -132,7 +132,7 @@ class MentorSbuild
     end
 
     def sim_module_files(files_method,updata_modufied_time)
-        files_method.call '.sim_files_mtime.txt',updata_modufied_time,@sim_work_paths,nil
+        files_method.call File::join(@curr_script_path,'.sim_files_mtime.txt'),updata_modufied_time,@sim_work_paths,nil
     end
 
     def sim_module_all_files(updata_modufied_time=false)
@@ -144,7 +144,7 @@ class MentorSbuild
     end
 
     def ip_module_files(files_method,updata_modufied_time)
-        files_method.call '.ip_files_mtime.txt',updata_modufied_time,@ip_work_paths,/(_bb\.)|(_inst\.)/
+        files_method.call File::join(@curr_script_path,'.ip_files_mtime.txt'),updata_modufied_time,@ip_work_paths,/(_bb\.)|(_inst\.)/
     end
 
     def ip_module_all_files(updata_modufied_time=false)
@@ -262,7 +262,11 @@ class MentorSbuild
             lib_path = "prj_#{atype}_#{module_name}"
             collect_str = ''
             Dir::mkdir(module_path,0666) unless Dir::exist? module_path
-            mfa[1].each do |file_path_item|
+            pkg_mfa = mfa[1].select{|item| /(?-i:pkg)|package/ =~ File::basename(item)}
+            pkg_mfa.each do |file_path_item|
+                collect_str = collect_str + "\n" + gen_file_do(file_path_item,lib_path)
+            end
+            (mfa[1]-pkg_mfa).each do |file_path_item|
                 collect_str = collect_str + "\n" + gen_file_do(file_path_item,lib_path)
             end
             next if collect_str == ''
