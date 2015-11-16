@@ -2,11 +2,11 @@
 require "fileutils"
 class MentorSbuild
 
-    attr_reader :rtl_work_paths,:sim_work_paths,:ip_work_path,:rtl_module_files,:mentor_work_path
+    attr_reader :rtl_work_paths,:sim_work_paths,:ip_work_path,:rtl_module_files,:mentor_work_path,:ignore_files,:ignore_both,:ignore_directory
 
     def initialize (work_script_path=__FILE__)
         scriptpath=File::dirname(File::expand_path(work_script_path))
-        curr_path=Dir::entries(scriptpath)
+        curr_path=Dir::entries(scriptpath)-%w{.. . .git}
         @curr_script_path   = scriptpath
         def_rtl_work_path = File::join(File::dirname(scriptpath),'rtl')
         def_sim_work_path =  File::join(File::dirname(scriptpath),'sim')
@@ -20,12 +20,14 @@ class MentorSbuild
                 @sim_work_paths = gen_work_paths(allword,/SIM:{(.+)}/m,[def_sim_work_path])
                 @ip_work_paths = gen_work_paths(allword,/IP_CORE:{(.+)}/m,[def_ip_work_path])
                 @mentor_work_path = gen_work_paths(allword,/IP_CORE:{(.+)}/m,[def_mentor_work_path]).first
+                gen_ignore_list allword,/ignore:{(.+)}/m
             end
         else
             @rtl_work_paths = [def_rtl_work_path]
             @sim_work_paths = [def_sim_work_path]
             @ip_work_paths = [def_ip_work_path]
             @mentor_work_path = def_mentor_work_path
+            gen_ignore_list nil,nil
         end
     end
 
@@ -46,16 +48,39 @@ class MentorSbuild
         end
     end
 
+    def gen_ignore_list(str,rep)
+        md = rep.match str
+        return nil unless md
+        rep_str_list = md[1].chomp.strip.split("\n")
+        file_str_list = rep_str_list.select {|item| /(^\/)|(^\\)/ =~ item}
+        dire_str_list = rep_str_list.select {|item| /(\/$)|(\\$)/ =~ item}
+        both_str_list = (rep_str_list - file_str_list) - dire_str_list
+        @ignore_files = file_str_list.map {|item| str_to_rep item }
+        @ignore_directory = dire_str_list.map {|item| str_to_rep item }
+        @ignore_both = both_str_list.map {|item| str_to_rep item }
+    end
+
+    def str_to_rep (str)
+        rep_slop = str.gsub("\\","/")
+        rep_str = rep_slop.gsub(/(^\/)|(\/$)/,'').strip.chomp.strip
+        rep_star_str = rep_str.gsub("*",".*").gsub("?",'\w')
+        Regexp.new(rep_star_str)
+    end
+
+
+
     def collect_path path,ptype,rep=/.+/,rep_filter=nil,block
         #return nil unless File::directory?(path)
         dir_c = []
-        dir_list = Dir.entries(path)-%w{. ..}
+        dir_list = Dir.entries(path)-%w{. .. .git}
         dir_list.each do |dir|
             type = File::ftype(File::join(path,dir))
             next if (type == "file" && rep !~ dir) || /^\./ =~ dir || dir =~ rep_filter
             dir_path = File::join(path,dir)
+            return [] unless (@ignore_both.select {|item| item =~ dir_path}).empty?
             case type
             when 'file'
+                return [] unless (@ignore_files.select {|item| item =~ dir_path}).empty?
                 if  ptype == "file"
                     if block
                         #p  "BLOCK:#{block.call dir_path}"
@@ -66,6 +91,7 @@ class MentorSbuild
                     end
                 end
             when 'directory'
+                return [] unless (@ignore_directory.select {|item| item =~ dir_path}).empty?
                 if ptype ==  "directory"
                     if block
                         dir_c   << dir_path if block.call dir_path
@@ -75,7 +101,7 @@ class MentorSbuild
                 end
                 dir_c   = dir_c | collect_path(dir_path,ptype,rep,rep_filter,block)
             else
-                nil
+                []
             end
         end
         dir_c
@@ -84,7 +110,23 @@ class MentorSbuild
     def module_and_files (paths,rep_filter=nil,block)
         module_and_files = []
         paths.each do |rp|
-            rp_array = Dir.entries(rp) - %w(. ..)
+            rp_array = Dir.entries(rp) - %w(. .. .git)
+            rp_array.reject! do |item|
+                fp = File::join(rp,item)
+                if File::file? fp
+                    ifs = @ignore_files.select {|ig| ig =~ fp}
+                    next true unless ifs.empty?
+                elsif File::directory? fp
+                    ids = @ignore_directory.select {|ig| ig =~ fp}
+                    next true unless ids.empty?
+                end
+                ibs = @ignore_both.select{|ig| ig =~ fp}
+                if ibs.empty?
+                    next nil
+                else
+                    next true
+                end
+            end
             rp_array.each do |ra|
                 dir_ra = File::join(rp,ra)
                 next unless File::directory? dir_ra
@@ -118,9 +160,9 @@ class MentorSbuild
         file_mt_ref(fname,files_mtime_lines,collect_module_modified_files) if updata_modufied_time
         return collect_module_modified_files
     end
-
+    public
     def rtl_module_files(files_method,updata_modufied_time)
-        files_method.call '.rtl_files_mtime.txt',updata_modufied_time,@rtl_work_paths,/((_bb\.)|(tb_.+\.(v|sv)$)|(_tb\.(v|sv)$))/
+        files_method.call File::join(@curr_script_path,'.rtl_files_mtime.txt'),updata_modufied_time,@rtl_work_paths,/((_bb\.)|(tb_.+\.(v|sv)$)|(_tb\.(v|sv)$))/
     end
 
     def rtl_module_all_files(updata_modufied_time=false)
@@ -132,7 +174,7 @@ class MentorSbuild
     end
 
     def sim_module_files(files_method,updata_modufied_time)
-        files_method.call '.sim_files_mtime.txt',updata_modufied_time,@sim_work_paths,nil
+        files_method.call File::join(@curr_script_path,'.sim_files_mtime.txt'),updata_modufied_time,@sim_work_paths,nil
     end
 
     def sim_module_all_files(updata_modufied_time=false)
@@ -144,7 +186,7 @@ class MentorSbuild
     end
 
     def ip_module_files(files_method,updata_modufied_time)
-        files_method.call '.ip_files_mtime.txt',updata_modufied_time,@ip_work_paths,/(_bb\.)|(_inst\.)/
+        files_method.call File::join(@curr_script_path,'.ip_files_mtime.txt'),updata_modufied_time,@ip_work_paths,/(_bb\.)|(_inst\.)/
     end
 
     def ip_module_all_files(updata_modufied_time=false)
@@ -262,7 +304,11 @@ class MentorSbuild
             lib_path = "prj_#{atype}_#{module_name}"
             collect_str = ''
             Dir::mkdir(module_path,0666) unless Dir::exist? module_path
-            mfa[1].each do |file_path_item|
+            pkg_mfa = mfa[1].select{|item| /(?-i:pkg)|package/ =~ File::basename(item)}
+            pkg_mfa.each do |file_path_item|
+                collect_str = collect_str + "\n" + gen_file_do(file_path_item,lib_path)
+            end
+            (mfa[1]-pkg_mfa).each do |file_path_item|
                 collect_str = collect_str + "\n" + gen_file_do(file_path_item,lib_path)
             end
             next if collect_str == ''
@@ -310,7 +356,8 @@ class MentorSbuild
         #p @ip_work_paths.first
         #p collect_path(@ip_work_paths.first,'file',/\.v/,nil,nil)
         all_paths.each do |path_item|
-            rel.concat collect_path(path_item,"file",rep,nil,nil)
+            cp = collect_path(path_item,"file",rep,nil,nil)
+            rel.concat cp if cp
         end
         return rel
     end
@@ -384,7 +431,6 @@ class MentorSbuild
 
     def gen_modified_do
         type_modules_dofiles = gen_dos :modified
-        #p type_modules_dofiles
         do_str = ''
         type_modules_dofiles.each do |item|
             modules_size = item[1].size
@@ -441,7 +487,6 @@ end
 
 ##### RUN SCRIPT #######
 $: << File::dirname(File::expand_path(__FILE__))
-require 'MentorSbuild'
 
 begin
 
@@ -454,8 +499,9 @@ if ARGV.empty?
 elsif ARGV[0] == 'all'
     #msb.gen_mentor_tcl :all
     msb.gen_all_do
-elsif ARGV[1] == "modified"
+elsif ARGV[0] == "modified"
     #msb.gen_mentor_tcl :modified
+    #p msb.gen_dos(:modified)
     msb.gen_modified_do
 else
     msb.gen_mentor_tcl :all
