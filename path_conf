@@ -9,3 +9,9 @@ IP_CORE:{
 }
 
 Mentor_Path:{}
+
+ignore:{
+.git
+some_path
+some_file.v
+}
