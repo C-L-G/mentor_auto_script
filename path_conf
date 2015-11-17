@@ -1,17 +1,18 @@
 RTL:{
+D:\work\github\cordic
 }
 SIM:{
-
+D:\work\mentor\sim
 }
 
 IP_CORE:{
-
+D:\work\mentor\ip_core
 }
 
-Mentor_Path:{}
+Mentor_Path:{
+D:\work\mentor\cordic
+}
 
 ignore:{
 .git
-some_path
-some_file.v
 }

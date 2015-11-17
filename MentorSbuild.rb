@@ -11,21 +11,21 @@ class MentorSbuild
         def_rtl_work_path = File::join(File::dirname(scriptpath),'rtl')
         def_sim_work_path =  File::join(File::dirname(scriptpath),'sim')
         def_ip_work_path =  File::join(File::dirname(scriptpath),'ip_core')
-        def_mentor_work_path = Dir::entries(File::join(File::dirname(scriptpath),'mentor'))-%w{. ..}
-        def_mentor_work_path = File::join(File::dirname(scriptpath),'mentor',def_mentor_work_path)
         if curr_path.include? 'path_conf'
             File::open(File::join(scriptpath,'path_conf')) do |f|
                 allword=f.read
-                @rtl_work_paths = gen_work_paths(allword,/RTL:{(.+)}/m,[def_rtl_work_path])
-                @sim_work_paths = gen_work_paths(allword,/SIM:{(.+)}/m,[def_sim_work_path])
-                @ip_work_paths = gen_work_paths(allword,/IP_CORE:{(.+)}/m,[def_ip_work_path])
-                @mentor_work_path = gen_work_paths(allword,/IP_CORE:{(.+)}/m,[def_mentor_work_path]).first
-                gen_ignore_list allword,/ignore:{(.+)}/m
+                @rtl_work_paths = gen_work_paths(allword,/RTL:{(.+?)}/m,[def_rtl_work_path])
+                @sim_work_paths = gen_work_paths(allword,/SIM:{(.+?)}/m,[def_sim_work_path])
+                @ip_work_paths = gen_work_paths(allword,/IP_CORE:{(.+?)}/m,[def_ip_work_path])
+                @mentor_work_path = gen_work_paths(allword,/Mentor_Path:{(.+?)}/m,[]).first
+                gen_ignore_list allword,/ignore:{(.+?)}/m
             end
         else
             @rtl_work_paths = [def_rtl_work_path]
             @sim_work_paths = [def_sim_work_path]
             @ip_work_paths = [def_ip_work_path]
+            def_mentor_work_path = Dir::entries(File::join(File::dirname(scriptpath),'mentor'))-%w{. ..}
+            def_mentor_work_path = File::join(File::dirname(scriptpath),'mentor',def_mentor_work_path)
             @mentor_work_path = def_mentor_work_path
             gen_ignore_list nil,nil
         end
@@ -63,6 +63,7 @@ class MentorSbuild
     def str_to_rep (str)
         rep_slop = str.gsub("\\","/")
         rep_str = rep_slop.gsub(/(^\/)|(\/$)/,'').strip.chomp.strip
+        rep_str = rep_str.gsub(".",'\.')
         rep_star_str = rep_str.gsub("*",".*").gsub("?",'\w')
         Regexp.new(rep_star_str)
     end
@@ -148,6 +149,7 @@ class MentorSbuild
         end
         _module_all_files = module_and_files work_paths,rep_filter,pblock
         pf.close if updata_modufied_time
+        #p "ppp #{work_paths} #{rep_filter}"
         return _module_all_files
     end
 
@@ -461,7 +463,9 @@ class MentorSbuild
             f.puts "do #{ruby_do_file}"
         end
         File::open(bat_file,'w') do |f|
-            f.puts "ruby #{ruby_file.gsub('/','\\')} #{atype.to_s}"
+            #f.puts "## BAT处理文件"
+            f.puts "C:\\Ruby22-x64\\bin\\ruby #{ruby_file.gsub('/','\\')} #{atype.to_s}"
+            #f.puts "ruby #{ruby_file} #{atype.to_s}".encode("US-ASCII")
         end
     end
 
@@ -494,6 +498,9 @@ msb = MentorSbuild.new
 if ARGV.empty?
     msb.gen_mentor_tcl :all
     msb.gen_mentor_tcl :modified
+#    p msb.rtl_module_all_files
+#    p msb.rtl_work_paths
+#    gets
 #    msb.gen_all_do
 #    msb.gen_modified_do
 elsif ARGV[0] == 'all'
