@@ -2,27 +2,22 @@
 
 class HdlFile
     attr_reader :typle,:mtime,:name,:hdl_typle,:full_name
-    @@pgk_files = []
+    @@pkg_files = []
     @@initial_files = []
     @@ignore_files = []
     @@ignore_paths = []
     @@pkg_lib = nil
     @@file_and_mtimes = []
+    REP_HDL = /\.(?:v|sv|hdl|vh|iv|hex|mif)$/i
+    REP_IGNORE = /(?:_bb\.(?:v|sv|hdl|vh))$/i
 
     def initialize(path_str)
+        @full_name = path_str
+        @name = File::basename path_str
         if File.exist?(path_str) && File.file?(path_str)
             @mtime = File::mtime(path_str)
             hdlfile_type
         end
-        @full_name = path_str
-        @name = File::basename path_str
-
-
-        if @typle == :package
-            @@pkg_lib = 'prj_pgk'
-            @@pgk_files << self
-        end
-        @@initial_files << self if @typle == :initial
 
         ## has be modifted
         pair = @@file_and_mtimes.assoc(@full_name)
@@ -86,27 +81,59 @@ class HdlFile
         end
     end
 
-    def self.hdl_file?(path_str)
-        rep_hdl = /\.(?:v|sv|hdl|vh|iv|hex|mif)$/i
-        dir_path = File::dirname(path_str)
+    def gen_do_script
+        return nil unless @has_be_modified
+        if @hdl_typle == :verilog || @hdl_typle == :systemverilog
+            com = 'vlog'
+        elsif @hdl_typle == :vhdl
+            com = 'com'
+        else
+            return nil
+        end
 
+        if @typle != :package
+            "#{com} -incr #{@full_name} #{@@pkg_lib? "-L #{@@pkg_lib}" : '' }"
+        else
+            "#{com} -incr #{@full_name} -work #{@@pkg_lib}"
+        end
+    end
+    ## class method
+
+    def self.hdl_file?(path_str)
+        # rep_hdl = /\.(?:v|sv|hdl|vh|iv|hex|mif)$/i
+        dir_path = File::dirname(path_str)
+        # rep_ignore = /(?:_bb\.(?:v|sv|hdl|vh))$/i
         @@ignore_paths.each do |ip|
-            if dir_path ~= ip
+            if dir_path =~ ip
                 return
             end
         end
 
         @@ignore_files.each do |ifile|
-            if ifile ~= path_str
+            if ifile =~ path_str
                 return
             end
         end
 
-        if rep_hdl =~ path_str
-            HdlFile.new(path_str)
+        if REP_HDL =~ path_str && path_str !~ REP_IGNORE
+            HdlFile.create(path_str)
         else
             nil
         end
+    end
+
+    def self.create(path_str)
+        np = self.new(path_str)
+        case np.typle
+        when :package
+            @@pkg_lib = 'prj_pgk'
+            @@pkg_files << np
+        when :initial
+            @@initial_files << np
+        else
+            nil
+        end
+        return np
     end
 
     def self.add_ignores(*str_args)
@@ -134,32 +161,19 @@ class HdlFile
         end
     end
 
-    def self.prj_pgk
-        @@prj_pgk
+    def self.pkg_lib
+        @@pkg_lib
     end
 
-    def gen_do_script
-        return '' unless @has_be_modified
-        if @hdl_typle == :verilog || @hdl_typle == :systemverilog
-            com = 'vlog'
-        elsif @hdl_typle == :vhdl
-            com = 'com'
-        else
-            return ''
-        end
-
-        if @typle != :package
-            "#{com} -incr #{@full_name} #{@@pkg_lib? "-L #{@@pkg_lib}" : '' }"
-        else
-            "#{com} -incr #{@full_name} -work #{@@pkg_lib}"
-        end
+    def self.pkg_files
+        @@pkg_files
     end
 
     def self.gen_pkg_script
         rel = "##=============packages==================\n"
         rel += "## pkg_file: #{@@pkg_files.length} \n"
 
-        @@pgk_files.each do |pf|
+        @@pkg_files.each do |pf|
             rel += pf.gen_do_script
         end
     end
@@ -183,6 +197,16 @@ class HdlFile
         return file_mtime_pair
     end
 
+    def self.write_mtimes(mfile)
+        f = File.open(mfile,'w')
+        @@file_and_mtimes.each do |pair|
+            f.print pair[0]+'  '+pair[1].to_s+"\n"
+        end
+        f.close
+    rescue
+        f.close
+        $LOG.puts "Can't write to file: #{mfile}"
+    end
 
 end
 
@@ -211,8 +235,8 @@ class ModulesCollectPath
     end
 
     def gen_do_script
-        rel = "##=============ROOT==================\n"
-        rel += "## #{module_name} root_file: #{@hdl_files.length} \n"
+        rel = "\n##=============ROOT==================\n"
+        rel += "## #{root_path} root_file: #{root_hdl_files.length} \n"
         root_hdl_files.each do |rf|
             rel += rf.gen_do_script + " -work work \n"
         end
@@ -225,7 +249,7 @@ class ModulesCollectPath
 end
 
 class ModulePath
-    attr_reader :root_path,:module_name,:hdl_files
+    attr_reader :root_path,:module_name,:hdl_files,:tb_hdl_files
     def initialize(path_str)
         unless File::exist?(path_str) || File::directory?(path_str)
             puts "Faile path #{path_str}"
@@ -268,28 +292,31 @@ class ModulePath
         return hdlfiles.concat(sub_list)
     end
 
-    def hdl_file?(path_str)
-        rep_hdl = /\.(?:v|sv|hdl|vh|iv|hex|mif)$/i
-        if rep_hdl =~ path_str
-            HdlFile.new(path_str)
-        else
-            nil
-        end
-    end
 
     def gen_do_script
-        rel = "##===============================\n"
+        rel = "##=============#{module_name}==================\n"
         rel += "## #{module_name} file: #{@hdl_files.length} \n"
-        rel += "proc ensure_lib { lib } { if ![file isdirectory $lib] { vlib $lib } }
-                ensure_lib		./prj_#{module_name}/
-                vmap prj_#{module_name} ./prj_#{module_name}/
-        "
+        rel += "
+ensure_lib		./prj_#{module_name}/
+vmap prj_#{module_name} ./prj_#{module_name}/
+\n"
         @hdl_files.each do |hf|
-            rel += hf.gen_do_script + " -work prj_#{module_name} \n"
+            if hf.typle != :package
+                hf_script = hf.gen_do_script
+                if hf_script
+                    rel += hf_script + " -work prj_#{module_name} \n"
+                end
+            end
         end
         return rel
     end
 
+    def has_any_tb
+        @tb_hdl_files = @hdl_files.select do |hf|
+            hf.typle == :tb
+        end
+        return @tb_hdl_files
+    end
 end
 
 
@@ -304,16 +331,18 @@ class GenDo
         @root_paths = []
 
         @paths.each do |pp|
-            ModulesCollectPath.new(pp)
-            @root_paths.concat ModulesCollectPath.new(pp)
+            @root_paths << ModulesCollectPath.new(pp)
         end
+        @root_paths.compact!
     end
 
     def gen_do_script
         rel = "
-               ## +++++++++++++++++++++++++
-               ## #{Time.new}
-               ## +++++++++++++++++++++++++"
+## +++++++++++++++++++++++++
+## #{Time.new}
+## +++++++++++++++++++++++++\n
+proc ensure_lib { lib } { if ![file isdirectory $lib] { vlib $lib } }\n"
+        rel += gen_pkg_script
         @root_paths.each do |rp|
             rel += rp.gen_do_script
         end
@@ -321,20 +350,165 @@ class GenDo
     end
 
     def gen_lib_script
-        rel = "#{HdlFile.pkg_lib? "-L #{HdlFile.pkg_lib}" : '' } "
+        rel = "#{(HdlFile.pkg_lib)? "-L #{HdlFile.pkg_lib}" : '' } "
         @root_paths.map do |rp|
             rp.modules.map {|subm| rel += '-L prj_'+subm.module_name }
         end
         return rel
     end
 
-    def gen_company_script(company='altera')
-        cmp = company.downcase
-        libs = %w{220model altera_lnsim  altera_mf  altera}
+    def gen_pkg_script
+        pkg_files = HdlFile.pkg_files
+        rel = "##=============packages==================\n"
+        rel += "## pkg_file: #{pkg_files.length} \n"
+        rel += "ensure_lib		./prj_pkg/\nvmap prj_pkg ./prj_pkg/\n"
+
+        pkg_files.each do |pf|
+            rel += pf.gen_do_script.to_s
+        end
+        return rel+"\n"
+    end
+
+    def gen_company_lib_script(company='altera',product="cyclone iv e",lang="verilog")
+        company.downcase!
+        product.downcase!
+        lang.downcase!
+        libs = []
+        if company == 'altera'
+            libs = %w{220model altera_lnsim  altera_mf  altera}
+            if product =~ /cyclone\s*iv\s*e/
+                libs.concat %w{cycloneive cycloneiii}
+            end
+
+            if lang == 'verilog'
+                libs.map! {|l| l+'_ver'}
+            end
+        elsif company == 'xilinx'
+
+            if lang == 'verilog'
+                libs = %w{secureip unisims_ver unimacro_ver unifast_ver simprims_ver }
+            elsif lang == 'vhdl'
+                libs = %w{secureip unisims unimacro unifast  }
+            end
+        end
+        if libs.empty?
+            return ""
+        else
+            return ' -L '+libs.join(" -L ")
+        end
+    end
+
+    def run_sim_script(*tb_modules)
+        hrel = "\n##==========================\n"
+        hrel += "###   vsim script\n"
+        rel = ''
+        tb_modules.each do |tbm|
+            @root_paths.each do |rp|
+                rp.modules.each do |subm|
+                    tb_names = subm.has_any_tb().map{|hf| hf.name.gsub(/\.\w+$/,'') }
+                    if tb_names.include? tbm
+                        rel += " prj_#{subm.module_name}.#{tbm} "
+                    end
+                end
+            end
+        end
+
+        hrel + "vsim #{gen_lib_script} #{gen_company_lib_script} -novopt #{rel}"
+    end
+
+end
+
+class ParseConf
+    attr_reader :code_paths,:modelsim_path,:conf_name,:ignore_items
+    def initialize(path_str)
+        if File::exist?(path_str) && File::file?(path_str)
+
+        else
+            return nil
+        end
+        all_str = nil
+        File.open(path_str) {|f| all_str = f.read }
+        parse_prj_conf(all_str)
+        parse_configure(all_str)
+        parse_code_paths
+        parse_modelsim_path
+        parse_ignore
+    end
+
+    def parse_code_paths
+        return unless @conf_block
+
+        rep = /CODE_PATHS:{(.+?)}/m
+        mch = @conf_block.match(rep)
+        return nil unless mch
+        path_array = mch[1].strip.split("\n")
+        return def_path_array if path_array.empty?
+        real_path = path_array.select do |pa|
+            File::exist?(pa) && File::directory?(pa)
+        end
+        @code_paths =  real_path.map {|item| item.gsub("\\",'/') }
+    end
+
+    def parse_prj_conf(str)
+        rep = /USE_CONFIGURE\s*:\s*(?<prj_name>\w+)/
+        str.match(rep)
+        if $~
+            @conf_name = $1
+        else
+            $LOG.puts "Can't Find >'USE_CONFIGURE:XXXXX' in cong file"
+        end
+    end
+
+    def parse_configure(all_str)
+        rep = Regexp.new("CONF\\s*:\\s*#{conf_name}(.+?)ENDCONF\\s*:\\s*#{conf_name}",Regexp::MULTILINE)
+        all_str.match(rep)
+        $LOG.unexpect($~,"Can't get configure : #{conf_name}")
+        @conf_block =  $1
+    end
+
+    def parse_modelsim_path
+        return unless @conf_block
+
+        rep = /Modelsim_PATH\s*:\s*(.+)/
+        @conf_block.match(rep)
+        $LOG.unexpect($~,"Can't get Modelsim_PATH : #{@conf_block}")
+        if $~
+            path = $1.strip
+            $LOG.unexpect(File::exist?(path) && File::directory?(path),"Modelsim_PATH : #{path} is error !!!")
+            @modelsim_path = path.gsub("\\",'/')
+        end
+    end
+
+    def parse_ignore
+        return unless @conf_block
+
+        rep = /IGNORE\s*:\s*{(.+?)}/m
+        @conf_block.match(rep)
+        if $~
+            str_lines = $1.strip.split("\n").map{|item| item.strip.gsub("\\",'/')}
+            @ignore_items = str_lines
+        end
+    end
 
 
 end
 
+class ShellFile
+
+    def initialize(conf_file)
+        @pconf = ParseConf.new(conf_file)
+        @gd    = GenDo.new(*@pconf.code_paths)
+        @curr_sys = nil
+        @mt_path = File::join(@pconf.modelsim_path,'/.mt_log/.mtimes.txt')
+        HdlFile.read_mtimes(@mt_path)
+    end
+
+    def gen_all_do
+        do_file = File::join(@pconf.modelsim_path,'all_run.do')
+        
+
+
+end
 
 ### test ###
 
@@ -358,4 +532,50 @@ class TestHdlFile
             puts f.name
         end
     end
+
+    def test_gen_do_script
+        rel = ''
+        gd = GenDo.new("E:/work/newboard_sensor_ISP_1113/rtl")
+        rel += gd.gen_do_script
+        rel += gd.run_sim_script "image_file_package_tb"
+    end
+
+    def test_parse_conf
+        pc = ParseConf.new('auto_conf')
+        puts "====current configure===="
+        puts pc.conf_name
+        puts "==== code paths ========="
+        puts pc.code_paths
+        puts "==== modelsim path ======"
+        puts pc.modelsim_path
+        puts "==== ignore ============="
+        puts pc.ignore_items
+    end
+
+    def test_mtimes
+        root_path_str = "D:/Documents/GitHub/cordic/cordic"
+        mcp = ModulesCollectPath.new(root_path_str)
+        puts "=====MTIMES====="
+        HdlFile.write_mtimes("mtime.txt")
+    end
+
 end
+
+$LOG = File.open('log.txt','w')
+
+def $LOG.unexpect(cond,str)
+    unless cond
+        $LOG.puts str
+    end
+end
+
+nt = TestHdlFile.new
+
+# puts HdlFile.hdl_file?("D:/Documents/GitHub/cordic/cordic/sin-cos/sin_cos_tb.sv")
+# File.open('log.txt','w') do |f|
+#     f.puts nt.test_gen_do_script
+# end
+
+# nt.test_parse_conf
+nt.test_mtimes
+$LOG.close
