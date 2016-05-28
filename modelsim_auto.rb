@@ -1,28 +1,31 @@
 
-
+require "fileutils"
 class HdlFile
     attr_reader :typle,:mtime,:name,:hdl_typle,:full_name
+    attr_accessor :sim_top
     @@pkg_files = []
     @@initial_files = []
     @@ignore_files = []
     @@ignore_paths = []
     @@pkg_lib = nil
     @@file_and_mtimes = []
+    @@tb_tops = []
     REP_HDL = /\.(?:v|sv|hdl|vh|iv|hex|mif)$/i
     REP_IGNORE = /(?:_bb\.(?:v|sv|hdl|vh))$/i
 
     def initialize(path_str)
         @full_name = path_str
+        @sim_top = false
         @name = File::basename path_str
         if File.exist?(path_str) && File.file?(path_str)
-            @mtime = File::mtime(path_str)
+            @mtime = File::mtime(path_str).to_s
             hdlfile_type
         end
 
         ## has be modifted
         pair = @@file_and_mtimes.assoc(@full_name)
         if pair
-            if pair[1] != @mtime  ## be modified
+            unless pair[1].eql? @mtime  ## be modified
                 @has_be_modified = true
             else
                 @has_be_modified = false
@@ -97,6 +100,19 @@ class HdlFile
             "#{com} -incr #{@full_name} -work #{@@pkg_lib}"
         end
     end
+
+    def cp_to_path(path)
+        memtor_targer_item = File.join(path,name)
+        if File.exist? memtor_targer_item
+            if File.mtime(memtor_targer_item).to_s.eql?(@mtime)
+                return
+            else
+                FileUtils::cp @full_name,memtor_targer_item
+            end
+        else
+            FileUtils::cp @full_name,memtor_targer_item
+        end
+    end
     ## class method
 
     def self.hdl_file?(path_str)
@@ -126,12 +142,16 @@ class HdlFile
         np = self.new(path_str)
         case np.typle
         when :package
-            @@pkg_lib = 'prj_pgk'
+            @@pkg_lib = 'prj_pkg'
             @@pkg_files << np
         when :initial
             @@initial_files << np
         else
-            nil
+            unless @@tb_tops.empty?
+                if @@tb_tops.include? np.name.sub(/\.\w+$/,'')
+                    np.sim_top = true
+                end
+            end
         end
         return np
     end
@@ -169,28 +189,40 @@ class HdlFile
         @@pkg_files
     end
 
+    def self.mtimes
+        @@file_and_mtimes
+    end
+
     def self.gen_pkg_script
         rel = "##=============packages==================\n"
         rel += "## pkg_file: #{@@pkg_files.length} \n"
+        rel += "##---------------------------------------\n"
 
         @@pkg_files.each do |pf|
             rel += pf.gen_do_script
         end
     end
 
+    def self.mv_initial_files_to(path)
+        @@initial_files.each { |inf| inf.cp_to_path(path) }
+    end
+
     def self.read_mtimes(mfile)
-        rep = /(?<path>\S+)\s+(?<mtime>\S+)/
+        rep = /(?<path>\S+)\s+(?<mtime>.+)/
         files_mtime_lines = []
         file_mtime_pair = []
         if File::exist? mfile
-            File.open(mfile,'r'){|f| files_mtime_lines.readlines}
+            File.open(mfile,'r'){|f| files_mtime_lines = f.readlines}
         else
+            puts "I have to create #{mfile}"
+            dirname = File.dirname(mfile)
+            Dir::mkdir(dirname) unless File::exist?(dirname)
             File.open(mfile,'w'){|f| f.puts ''}
         end
         files_mtime_lines.each do |l|
             mch = l.match(rep)
             if mch
-                file_mtime_pair << [mch[:path],mch[mtime]]
+                file_mtime_pair << [mch[:path],mch[:mtime].strip]
             end
         end
         @@file_and_mtimes = file_mtime_pair
@@ -206,6 +238,10 @@ class HdlFile
     rescue
         f.close
         $LOG.puts "Can't write to file: #{mfile}"
+    end
+
+    def self.add_tb_top(*args)
+        @@tb_tops.concat! args
     end
 
 end
@@ -237,8 +273,12 @@ class ModulesCollectPath
     def gen_do_script
         rel = "\n##=============ROOT==================\n"
         rel += "## #{root_path} root_file: #{root_hdl_files.length} \n"
+        rel += "##---------------------------------------\n"
         root_hdl_files.each do |rf|
-            rel += rf.gen_do_script + " -work work \n"
+            script = rf.gen_do_script
+            if script
+                rel += script + " -work work \n"
+            end
         end
         modules.each do |m|
             rel += m.gen_do_script
@@ -296,10 +336,9 @@ class ModulePath
     def gen_do_script
         rel = "##=============#{module_name}==================\n"
         rel += "## #{module_name} file: #{@hdl_files.length} \n"
-        rel += "
-ensure_lib		./prj_#{module_name}/
-vmap prj_#{module_name} ./prj_#{module_name}/
-\n"
+        rel += "ensure_lib		./prj_#{module_name}/\n" +
+                "vmap prj_#{module_name} ./prj_#{module_name}/\n\n"
+
         @hdl_files.each do |hf|
             if hf.typle != :package
                 hf_script = hf.gen_do_script
@@ -317,6 +356,11 @@ vmap prj_#{module_name} ./prj_#{module_name}/
         end
         return @tb_hdl_files
     end
+
+    # def gen_tb_top_for_sim(*args)
+    #     args.each do |a|
+    #         @hdl_files.each do |hf|
+    #             hf.sim_top
 end
 
 
@@ -336,20 +380,18 @@ class GenDo
         @root_paths.compact!
     end
 
-    def gen_do_script
-        rel = "
-## +++++++++++++++++++++++++
-## #{Time.new}
-## +++++++++++++++++++++++++\n
-proc ensure_lib { lib } { if ![file isdirectory $lib] { vlib $lib } }\n"
-        rel += gen_pkg_script
-        @root_paths.each do |rp|
-            rel += rp.gen_do_script
-        end
-        return rel
+    private
+
+    def head_sign
+        rel =
+        "## +++++++++++++++++++++++++\n"+
+        "## #{Time.new} \n" +
+        "## +++++++++++++++++++++++++\n" +
+        "proc ensure_lib { lib } { if ![file isdirectory $lib] { vlib $lib } }\n"
     end
 
-    def gen_lib_script
+
+    def gen_lib_script # just for run sim
         rel = "#{(HdlFile.pkg_lib)? "-L #{HdlFile.pkg_lib}" : '' } "
         @root_paths.map do |rp|
             rp.modules.map {|subm| rel += '-L prj_'+subm.module_name }
@@ -369,7 +411,7 @@ proc ensure_lib { lib } { if ![file isdirectory $lib] { vlib $lib } }\n"
         return rel+"\n"
     end
 
-    def gen_company_lib_script(company='altera',product="cyclone iv e",lang="verilog")
+    def gen_company_lib_script(company='altera',product="cyclone iv e",lang="verilog") # just for run sim
         company.downcase!
         product.downcase!
         lang.downcase!
@@ -405,21 +447,45 @@ proc ensure_lib { lib } { if ![file isdirectory $lib] { vlib $lib } }\n"
         tb_modules.each do |tbm|
             @root_paths.each do |rp|
                 rp.modules.each do |subm|
-                    tb_names = subm.has_any_tb().map{|hf| hf.name.gsub(/\.\w+$/,'') }
+                    tb_names = subm.has_any_tb().map{|hf| hf.name.sub(/\.\w+?$/,'') }
                     if tb_names.include? tbm
                         rel += " prj_#{subm.module_name}.#{tbm} "
                     end
+                end
+
+                tb_names = rp.root_hdl_files.map {|hf| hf.name.sub(/\.\w+?$/,'') }
+                if tb_names.include? tbm
+                    rel += " work.#{tbm} "
                 end
             end
         end
 
         hrel + "vsim #{gen_lib_script} #{gen_company_lib_script} -novopt #{rel}"
+
     end
+
+    public
+
+    def gen_complie_script
+        rel = head_sign
+        rel += gen_pkg_script
+        @root_paths.each do |rp|
+            rel += rp.gen_do_script
+        end
+        return rel
+    end
+
+    def mix_in_sim_script(*tb_modules)
+        rel = gen_complie_script
+        rel += run_sim_script(*tb_modules)
+        return rel
+    end
+
 
 end
 
 class ParseConf
-    attr_reader :code_paths,:modelsim_path,:conf_name,:ignore_items
+    attr_reader :code_paths,:modelsim_path,:conf_name,:ignore_items,:sim_modules,:target_do_path
     def initialize(path_str)
         if File::exist?(path_str) && File::file?(path_str)
 
@@ -427,13 +493,18 @@ class ParseConf
             return nil
         end
         all_str = nil
-        File.open(path_str) {|f| all_str = f.read }
+        File.open(path_str) {|f| all_str = f.read.gsub(/#.+\n/,"\n") }
         parse_prj_conf(all_str)
         parse_configure(all_str)
         parse_code_paths
         parse_modelsim_path
         parse_ignore
+        parse_top_sim_modules
+        @target_do_path = File.join(File.dirname(File.expand_path(__FILE__)),'/.do_files')
+        Dir::mkdir @target_do_path unless File::exist? @target_do_path
     end
+
+    private
 
     def parse_code_paths
         return unless @conf_block
@@ -490,6 +561,16 @@ class ParseConf
         end
     end
 
+    def parse_top_sim_modules
+        return unless @conf_block
+
+        rep = /SIM_TOP_MODULES\s*:\s*{(.+?)}/m
+        @conf_block.match(rep)
+        if $~
+            str_lines = $1.strip.split("\n").map{|item| item.strip.gsub("\\",'/')}
+            @sim_modules = str_lines
+        end
+    end
 
 end
 
@@ -497,15 +578,130 @@ class ShellFile
 
     def initialize(conf_file)
         @pconf = ParseConf.new(conf_file)
+        @mt_path = File::join(@pconf.modelsim_path,'/.mt_log/.mtimes.txt')
+        HdlFile.add_ignores(*@pconf.ignore_items)
+        HdlFile.read_mtimes(@mt_path)
         @gd    = GenDo.new(*@pconf.code_paths)
         @curr_sys = nil
-        @mt_path = File::join(@pconf.modelsim_path,'/.mt_log/.mtimes.txt')
-        HdlFile.read_mtimes(@mt_path)
     end
 
-    def gen_all_do
+    def gen_modelsim_do_script
         do_file = File::join(@pconf.modelsim_path,'all_run.do')
-        
+        f = File.open(do_file,'w')
+        f.puts @gd.mix_in_sim_script *@pconf.sim_modules
+        f.close
+        # HdlFile.write_mtimes(@mt_path)
+        HdlFile.mv_initial_files_to(@pconf.modelsim_path)
+    rescue
+        f.close
+        raise
+    end
+
+    def update_mtime_file
+        HdlFile.write_mtimes(@mt_path)
+    end
+
+    def create_sh_file_compile
+        sh_file = gen_sh_file("compile")
+        f = File.open(sh_file,'w')
+        f.puts "ruby #{File.expand_path(__FILE__)} compile "
+        f.close
+        return sh_file
+    end
+
+    def create_sh_file_recompile
+        sh_file = gen_sh_file("recompile")
+        f = File.open(sh_file,'w')
+        f.puts "ruby #{File.expand_path(__FILE__)} recompile "
+        f.close
+        return sh_file
+    end
+
+    def create_sh_file_update_mtime
+        sh_file = gen_sh_file("update_mtime")
+        f = File.open(sh_file,'w')
+        f.puts "ruby #{File.expand_path(__FILE__)} update_mtime "
+        f.close
+        return sh_file
+    end
+
+    def create_compile_do_script
+        file_name = File.join(@pconf.target_do_path,'compile.do')
+        f = File.open(file_name,'w')
+        f.puts @gd.mix_in_sim_script *@pconf.sim_modules
+        f.close
+        # HdlFile.write_mtimes(@mt_path)
+        HdlFile.mv_initial_files_to(@pconf.modelsim_path)
+        return file_name
+    # rescue
+    #     f.close
+    #     raise
+    end
+
+    def create_recompile_do_script
+        file_name = File.join(@pconf.target_do_path,'recompile.do')
+        f = File.open(file_name,'w')
+        f.puts @gd.gen_complie_script
+        f.close
+        # HdlFile.write_mtimes(@mt_path)
+        # HdlFile.mv_initial_files_to(@pconf.modelsim_path)
+        return file_name
+    rescue
+        f.close
+        raise
+    end
+
+
+    def gen_sh_file(name)
+        curr_sys = ENV["_system_type"].downcase
+
+        if curr_sys == "linux"
+            file_name = "#{name}.sh"
+        elsif curr_sys == "windows"
+            file_name = "#{name}.bat"
+        else
+            file_name = "#{name}.e"
+        end
+        file_name = File.join(@pconf.target_do_path,file_name)
+    end
+
+    def gen_do_compile
+        file_name = File.join(@pconf.modelsim_path,'compile.do')
+        f = File.open(file_name,'w')
+        f.puts "echo #{'='*20}"
+        f.puts "echo CREATED BY --@--Young--@--"
+        f.puts "echo Have fun"
+        f.puts "echo #{'='*20}"
+        f.puts "exec #{create_sh_file_compile}"
+        f.puts "do #{create_compile_do_script}"
+        f.puts "exec #{create_sh_file_update_mtime}"
+        f.close
+    end
+
+    def gen_do_recompile
+        file_name = File.join(@pconf.modelsim_path,'recompile.do')
+        f = File.open(file_name,'w')
+        f.puts "echo #{'='*20}"
+        f.puts "echo CREATED BY --@--Young--@--"
+        f.puts "echo Have fun"
+        f.puts "echo #{'='*20}"
+        f.puts "exec #{create_sh_file_recompile}"
+        f.puts "do #{create_recompile_do_script}"
+        f.puts "exec #{create_sh_file_update_mtime}"
+        f.close
+    end
+
+
+
+    def self.update_mtime_file(conf_file)
+        pconf = ParseConf.new(conf_file)
+        mt_path = File::join(pconf.modelsim_path,'/.mt_log/.mtimes.txt')
+        HdlFile.read_mtimes(mt_path)
+        HdlFile.add_ignores(*pconf.ignore_items)
+        #HdlFile.read_mtimes(@mt_path)
+        pconf.code_paths.each {|pp| ModulesCollectPath.new(pp) }
+        HdlFile.write_mtimes(mt_path)
+    end
 
 
 end
@@ -527,7 +723,7 @@ class TestHdlFile
             end
         end
         puts "======root files ======="
-        mcp.root_hdl_files.each do |f|
+        mcp.root_hdl_files.each do |f|ignore_items
             print f.typle.to_s+" -->> "
             puts f.name
         end
@@ -536,8 +732,7 @@ class TestHdlFile
     def test_gen_do_script
         rel = ''
         gd = GenDo.new("E:/work/newboard_sensor_ISP_1113/rtl")
-        rel += gd.gen_do_script
-        rel += gd.run_sim_script "image_file_package_tb"
+        rel += gd.mix_in_sim_script "image_file_package_tb"
     end
 
     def test_parse_conf
@@ -553,15 +748,30 @@ class TestHdlFile
     end
 
     def test_mtimes
-        root_path_str = "D:/Documents/GitHub/cordic/cordic"
+        root_path_str = "/home/young/work/ruby/file-class-package"
         mcp = ModulesCollectPath.new(root_path_str)
         puts "=====MTIMES====="
         HdlFile.write_mtimes("mtime.txt")
     end
 
+    def test_gen_modelsim_do
+        ShellFile.new('auto_conf').gen_modelsim_do_script
+    end
+
+    def test_update_mtime_file
+        ShellFile.test_update_mtime_file('auto_conf')
+    end
+
+    def test_gen_do_compile
+        ShellFile.new('auto_conf').gen_do_compile
+        ShellFile.new('auto_conf').gen_do_recompile
+    end
 end
 
 $LOG = File.open('log.txt','w')
+END {
+    $LOG.close
+}
 
 def $LOG.unexpect(cond,str)
     unless cond
@@ -569,7 +779,7 @@ def $LOG.unexpect(cond,str)
     end
 end
 
-nt = TestHdlFile.new
+# nt = TestHdlFile.new
 
 # puts HdlFile.hdl_file?("D:/Documents/GitHub/cordic/cordic/sin-cos/sin_cos_tb.sv")
 # File.open('log.txt','w') do |f|
@@ -577,5 +787,26 @@ nt = TestHdlFile.new
 # end
 
 # nt.test_parse_conf
-nt.test_mtimes
-$LOG.close
+# nt.test_mtimes
+# nt.test_gen_modelsim_do
+
+# nt.test_gen_do_compile
+
+#### RUN SCRIPT #######
+$: << File::dirname(File::expand_path(__FILE__))
+$conf_file = 'auto_conf'
+if ARGV.empty?
+    sf = ShellFile.new($conf_file)
+    sf.gen_do_compile        #generate memtor_path:{compile.do} .do_files_path:{compile.do complie.sh update_mtime.sh}
+    sf.gen_do_recompile      #generate memtor_path:{recompile.do} .do_files_path:{recompile.do recomplie.sh update_mtime.sh}
+elsif ARGV[0] == "compile"
+    sf = ShellFile.new('auto_conf')
+    sf.create_compile_do_script #generate .do_files_path:{compile.do}
+    sf.update_mtime_file
+elsif ARGV[0] == "recompile"
+    sf = ShellFile.new('auto_conf')
+    sf.create_recompile_do_script #generate .do_files_path:{recompile.do}
+    sf.update_mtime_file
+elsif ARGV[0] == "update_mtime"
+    ShellFile.update_mtime_file $conf_file
+end
