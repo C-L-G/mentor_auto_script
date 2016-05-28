@@ -11,16 +11,15 @@ class MentorSbuild
         def_rtl_work_path = File::join(File::dirname(scriptpath),'rtl')
         def_sim_work_path =  File::join(File::dirname(scriptpath),'sim')
         def_ip_work_path =  File::join(File::dirname(scriptpath),'ip_core')
-        def_mentor_work_path = Dir::entries(File::join(File::dirname(scriptpath),'mentor'))-%w{. ..}
-        def_mentor_work_path = File::join(File::dirname(scriptpath),'mentor',def_mentor_work_path)
+        def_mentor_work_path = File::join(File::dirname(scriptpath),'mentor')
         if curr_path.include? 'path_conf'
             File::open(File::join(scriptpath,'path_conf')) do |f|
                 allword=f.read
-                @rtl_work_paths = gen_work_paths(allword,/RTL:{(.+)}/m,[def_rtl_work_path])
-                @sim_work_paths = gen_work_paths(allword,/SIM:{(.+)}/m,[def_sim_work_path])
-                @ip_work_paths = gen_work_paths(allword,/IP_CORE:{(.+)}/m,[def_ip_work_path])
-                @mentor_work_path = gen_work_paths(allword,/IP_CORE:{(.+)}/m,[def_mentor_work_path]).first
-                gen_ignore_list allword,/ignore:{(.+)}/m
+                @rtl_work_paths = gen_work_paths(allword,/RTL:{(.+?)}/m,[def_rtl_work_path])
+                @sim_work_paths = gen_work_paths(allword,/SIM:{(.+?)}/m,[def_sim_work_path])
+                @ip_work_paths = gen_work_paths(allword,/IP_CORE:{(.+?)}/m,[def_ip_work_path])
+                @mentor_work_path = gen_work_paths(allword,/Mentor_Path:{(.+?)}/m,[def_mentor_work_path]).first
+                gen_ignore_list allword,/ignore:{(.+?)}/m
             end
         else
             @rtl_work_paths = [def_rtl_work_path]
@@ -63,6 +62,7 @@ class MentorSbuild
     def str_to_rep (str)
         rep_slop = str.gsub("\\","/")
         rep_str = rep_slop.gsub(/(^\/)|(\/$)/,'').strip.chomp.strip
+        rep_str = rep_str.gsub(".",'\.')
         rep_star_str = rep_str.gsub("*",".*").gsub("?",'\w')
         Regexp.new(rep_star_str)
     end
@@ -77,10 +77,10 @@ class MentorSbuild
             type = File::ftype(File::join(path,dir))
             next if (type == "file" && rep !~ dir) || /^\./ =~ dir || dir =~ rep_filter
             dir_path = File::join(path,dir)
-            return [] unless (@ignore_both.select {|item| item =~ dir_path}).empty?
+            next [] unless (@ignore_both.select {|item| item =~ dir_path}).empty?
             case type
             when 'file'
-                return [] unless (@ignore_files.select {|item| item =~ dir_path}).empty?
+                next [] unless (@ignore_files.select {|item| item =~ dir_path}).empty?
                 if  ptype == "file"
                     if block
                         #p  "BLOCK:#{block.call dir_path}"
@@ -91,7 +91,7 @@ class MentorSbuild
                     end
                 end
             when 'directory'
-                return [] unless (@ignore_directory.select {|item| item =~ dir_path}).empty?
+                next [] unless (@ignore_directory.select {|item| item =~ dir_path}).empty?
                 if ptype ==  "directory"
                     if block
                         dir_c   << dir_path if block.call dir_path
@@ -109,34 +109,35 @@ class MentorSbuild
 
     def module_and_files (paths,rep_filter=nil,block)
         module_and_files = []
+        top_files = []
         paths.each do |rp|
             rp_array = Dir.entries(rp) - %w(. .. .git)
-            rp_array.reject! do |item|
-                fp = File::join(rp,item)
-                if File::file? fp
-                    ifs = @ignore_files.select {|ig| ig =~ fp}
-                    next true unless ifs.empty?
-                elsif File::directory? fp
-                    ids = @ignore_directory.select {|ig| ig =~ fp}
-                    next true unless ids.empty?
-                end
-                ibs = @ignore_both.select{|ig| ig =~ fp}
-                if ibs.empty?
-                    next nil
-                else
-                    next true
-                end
-            end
             rp_array.each do |ra|
                 dir_ra = File::join(rp,ra)
-                next unless File::directory? dir_ra
-                rp_paths = collect_path(dir_ra,'file',/\.(?i:(v|vhd|sv))$/,rep_filter,block)
-                #p "#{ra}>>>>><<<<#{rep_filter}"
-                #p "--->#{rep_filter}"
-                module_and_files << [ra,rp_paths] unless rp_paths.empty?
+                #next unless File::directory? dir_ra
+                if File::directory? dir_ra
+                    rp_paths = collect_path(dir_ra,'file',/\.(?i:(v|vhd|sv))$/,rep_filter,block)
+                    rp_paths = rp_paths.select do |item|
+                        ifs = @ignore_files.select {|ig| ig =~ File::basename(item)}
+                        ids = @ignore_directory.select {|ig| ig =~ File::dirname(item)}
+                        ibs = @ignore_both.select{|ig| ig =~ item}
+                        if (ifs+ids+ibs).empty?
+                            true
+                        else
+                            false
+                        end
+                    end
+                    module_and_files << [ra,rp_paths] unless rp_paths.empty?
+                elsif File::file? dir_ra
+                    next if /\.(?i:(v|vhd|sv))$/ !~ dir_ra
+                    block.call dir_ra
+                    top_files << dir_ra
+                else
+                    next
+                end
             end
         end
-        return module_and_files
+        return (module_and_files << ['work',top_files])
     end
 
     def module_all_files(fname,updata_modufied_time=false,work_paths,rep_filter)
@@ -148,6 +149,7 @@ class MentorSbuild
         end
         _module_all_files = module_and_files work_paths,rep_filter,pblock
         pf.close if updata_modufied_time
+        #p "ppp #{work_paths} #{rep_filter}"
         return _module_all_files
     end
 
@@ -386,7 +388,7 @@ class MentorSbuild
         if company == 'altera'
             libs = %w{220model altera_lnsim  altera_mf  altera}
             if product =~ /cyclone\s*iv\s*e/
-                libs.concat %w{cycloneive}
+                libs.concat %w{cycloneive cycloneiii}
             end
 
             if lang == 'verilog'
@@ -461,7 +463,9 @@ class MentorSbuild
             f.puts "do #{ruby_do_file}"
         end
         File::open(bat_file,'w') do |f|
-            f.puts "ruby #{ruby_file.gsub('/','\\')} #{atype.to_s}"
+            #f.puts "## BAT处理文件"
+            f.puts "C:\\Ruby22-x64\\bin\\ruby #{ruby_file.gsub('/','\\')} #{atype.to_s}"
+            #f.puts "ruby #{ruby_file} #{atype.to_s}".encode("US-ASCII")
         end
     end
 
@@ -494,6 +498,9 @@ msb = MentorSbuild.new
 if ARGV.empty?
     msb.gen_mentor_tcl :all
     msb.gen_mentor_tcl :modified
+#    p msb.rtl_module_all_files
+#    p msb.rtl_work_paths
+#    gets
 #    msb.gen_all_do
 #    msb.gen_modified_do
 elsif ARGV[0] == 'all'

@@ -1,0 +1,15 @@
+
+CONF: PRJ_0
+CODE_PATHS:{
+E:\work\newboard_sensor_ISP_1113\rtl
+}
+
+IGNORE:{
+newboard_sensor_ISP_1113
+woek/
+}
+
+Modelsim_PATH:E:\work\newboard_sensor_ISP_1113\rtl\
+ENDCONF:PRJ_0
+
+USE_CONFIGURE: PRJ_0
