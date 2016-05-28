@@ -32,43 +32,74 @@ Why	do I code it：
 
 FILE DESCRIPTION:
 
-	MentorSbuild.rb	关键脚本
+	modelsim_auto.rb    Ruby 脚本
 
-	path_conf  路径配置脚本
+	auto_conf  配置脚本
 
-	MentorSbuild.rb	KEY, Mentor	Script Builder
+	modelsim_auto.rb    Ruby script
 
-	path_conf  configure for environment
+	auto_conf  configure for env
 
 
 使用说明:
 
-	1、配置path_conf 文件，分别是RTL代码路径，SIM代码路径，IP_CORE代码路径，modelsim工程路径,每一行就是一个完整的路径
+	1、配置auto_conf 文件:
+	
+	   CONF:配置block
+	
+	   CODE_PATHS 代码路径 
+	   
+	   Modelsim_PATH modelsim 工程路径
+	   
+	   IGNORE  忽略的路径和文件
+	   
+	   SIM_TOP_MODULES 仿真top文件，支持多个
 
 	   支持 正斜杠和反斜杠，也就是说 win 和 UNIX的 路径方式都是可以的
 
-	   不可用’space‘ 分号，分隔。
-
 	   例如：
-			RTL:{
-
-			E:\RTL
-
-			}
-
-			SIM:{
-
-			E:/SIM	
-
-			}
-				
-			IP_CORE:{
-
-			E:\IP_CORE	
-
-			}
-				
-			Mentor_Path:{E:/modelsim_prj}
+	   
+		CONF: PRJ_0  	# PRJ_0 配置 ，一个文件可以有多个 CONF
+		
+		CODE_PATHS:{    # 代码路径，大括号内可以有多个路径，每个路径占用一行
+		
+		#E:\work\newboard\rtl  # 支持 ‘#’ 注释 一个#注释一行 类似 C语言的 //
+		
+		/home/young/work/ruby/cordic
+		
+		/home/young/work/ruby/general-cordic-rotaion
+		
+		/home/young/work/ruby/file-class-package
+		
+		}
+		
+		IGNORE:{ # 忽略文件夹和文件
+		
+		ISP  #忽略带有 ‘ISP’的 文件或文件夹
+		
+		？KK # 支持？ 的通配符号 匹配一个有效alpha字符
+		 
+		.JJ # 支持. 通配符号 匹配任意字符
+		
+		*ww # 支持* 通配符号 匹配任意个任意字符
+		
+		work/ #忽略 带有work的文件夹
+		
+		}
+		
+		Modelsim_PATH:/home/young/work/mentor  # modelsim 工程路径
+		
+		SIM_TOP_MODULES:{ # 顶层模块，支持多个模块
+		
+		image_file_package_tb
+		
+		X_Y_to_angle_tb
+		
+		}
+		
+		ENDCONF:PRJ_0  # CONG结束 关键词 CONG ENDCONG是一对。冒号后必须跟 配置名
+		
+		USE_CONFIGURE: PRJ_0 # 当前使用配置
 
 	   路径下是按文件夹来分模块的。
 
