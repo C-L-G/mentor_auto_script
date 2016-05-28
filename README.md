@@ -101,99 +101,26 @@ FILE DESCRIPTION:
 		
 		USE_CONFIGURE: PRJ_0 # 当前使用配置
 
-	   路径下是按文件夹来分模块的。
-
-	   例如:
-
-			E:\RTL\.
-
-				   module_A\
-
-							rtl_file
-
-				   module_B\
-
-							rtl_file
 
 		2、运行MentorSbuid.rb，	会在modelsim工程文件夹下生成 
 
-			compile_all.do
+			compile.do
 
-			compile_modified.do
+			recompile.do
 
-			compile_all.bat
-
-			compile_modified.bat
+			.mt_log/.mtimes.txt #临时文件 保存文件修改时间
 
 		3、	在modesim状态下
 
-			 do		compile_all.do		#编译所有文件
+			 do		compile.do	#编译所有修改后文件，并运行仿真
 
-			 do		compile_modified.do	#只编译修改的文件
+			 do		recompile.do	#重新编译修改的文件
 
-
-How	It work:
-
-		1、configure	file path_conf,each	line is	a directory
-
-		   / and \ both	work
-
-		Example:
-
-			RTL:{
-
-			E:\RTL
-
-			}
-
-			SIM:{
-
-			E:/SIM	
-
-			}
-				
-			IP_CORE:{
-
-			E:\IP_CORE	
-
-			}
-				
-			Mentor_Path:{E:/modelsim_prj}
-
-		and	directory like this:
-
-			E:\RTL\.
-
-				   module_A\
-
-							rtl_file
-
-				   module_B\
-
-							rtl_file
-
-		 2、Run MentorSbuid.rb .	if you work	in MS, just	double chick
-
-			It will	create 4 files in dir of project of	Mentor
-
-			compile_all.do
-
-			compile_modified.do
-
-			compile_all.bat
-
-			compile_modified.bat
-
-		 3、show	time 
-
-			 do		compile_all.do		#if	you	want compile all 
-
-			 do		compile_modified.do	#if	you	want complie few files that	have be	modified
 
 
 还有一些功能我还想加入，以后会慢慢完善。
 
-It will	be better. But development would spend many	time. I	try	my best.
+It will	be better. But development would spend many	time. I	try my best.
 	
 Good 4 U 
 
