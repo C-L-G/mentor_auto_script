@@ -1,7 +1,10 @@
 
 CONF: PRJ_0
 CODE_PATHS:{
-E:\work\newboard_sensor_ISP_1113\rtl
+#E:\work\newboard_sensor_ISP_1113\rtl
+/home/young/work/ruby/cordic
+/home/young/work/ruby/general-cordic-rotaion
+/home/young/work/ruby/file-class-package
 }
 
 IGNORE:{
@@ -9,7 +12,12 @@ newboard_sensor_ISP_1113
 woek/
 }
 
-Modelsim_PATH:E:\work\newboard_sensor_ISP_1113\rtl\
+Modelsim_PATH:/home/young/work/mentor
+
+SIM_TOP_MODULES:{
+image_file_package_tb
+X_Y_to_angle_tb
+}
 ENDCONF:PRJ_0
 
 USE_CONFIGURE: PRJ_0
