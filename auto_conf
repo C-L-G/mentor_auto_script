@@ -18,6 +18,38 @@ SIM_TOP_MODULES:{
 image_file_package_tb
 X_Y_to_angle_tb
 }
+
+COMPANY:Altera
+
+PRODUCT:Cyclone iv e
+
 ENDCONF:PRJ_0
 
-USE_CONFIGURE: PRJ_0
+######################################################
+CONF: PRJ_1
+CODE_PATHS:{
+E:\work\xilinx\video_board\rtl
+E:\work\xilinx\video_board\xapp585\
+E:\work\xilinx\video_board\sim
+E:\work\xilinx\video_board\fbg676_3\video_board\video_board.srcs\sources_1\ip
+}
+
+IGNORE:{
+VHDL\
+}
+
+Modelsim_PATH:E:\work\xilinx\video_board\Mentor
+
+SIM_TOP_MODULES:{
+
+}
+
+COMPANY:XILINX
+
+PRODUCT:Artix7
+
+LANGUAGE:verilog
+
+ENDCONF:PRJ_1
+#####################################################
+USE_CONFIGURE: PRJ_1

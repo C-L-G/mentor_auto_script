@@ -1,6 +1,26 @@
 
 require "fileutils"
 class HdlFile
+
+    REP_TB_0 = /_tb\.(?:sv|v|vhd)$/i
+    REP_TB_1 = /^tb_\w+\.(?:sv|v|vhd)$/i
+
+    REP_TB = Regexp.union(REP_TB_0,REP_TB_1)
+
+    REP_PKG_0 = /pkg\.(?:sv|vhd)$/i
+    REP_PKG_1 = /^pkg\w*\.(?:sv|vhd)$/i
+    REP_PKG_2 = /package\w*\.(?:sv|vhd)$/i
+
+    REP_PKG = Regexp.union(REP_PKG_0,REP_PKG_1,REP_PKG_2)
+
+    REP_IGNORE_0 = /_bb\.(?:sv|v|vhd)/i
+    REP_IGNORE_1 = /_inst\.(?:sv|v|vhd)/i
+
+    REP_IGNORE = Regexp.union(REP_IGNORE_0,REP_IGNORE_1)
+
+    REP_INITL_ARRAY = ["\\.hex","\\.mif","\\.iv",'alt_mem_phy_defines\.v',"\\.vh"]
+    REP_INITL = Regexp.new(REP_INITL_ARRAY.join('|'))
+
     attr_reader :typle,:mtime,:name,:hdl_typle,:full_name
     attr_accessor :sim_top
     @@pkg_files = []
@@ -11,7 +31,7 @@ class HdlFile
     @@file_and_mtimes = []
     @@tb_tops = []
     REP_HDL = /\.(?:v|sv|hdl|vh|iv|hex|mif)$/i
-    REP_IGNORE = /(?:_bb\.(?:v|sv|hdl|vh))$/i
+    # REP_IGNORE = /(?:_bb\.(?:v|sv|hdl|vh))$/i
 
     def initialize(path_str)
         @full_name = path_str
@@ -40,33 +60,15 @@ class HdlFile
 
 
     def hdlfile_type
-        rep_tb_0 = /_tb\.(?:sv|v|vhd)$/i
-        rep_tb_1 = /^tb_\w+\.(?:sv|v|vhd)$/i
-
-        rep_tb = Regexp.union(rep_tb_0,rep_tb_1)
-
-        rep_pkg_0 = /pkg\.(?:sv|vhd)$/i
-        rep_pkg_1 = /^pkg\w*\.(?:sv|vhd)$/i
-        rep_pkg_2 = /package\w*\.(?:sv|vhd)$/i
-
-        rep_pkg = Regexp.union(rep_pkg_0,rep_pkg_1,rep_pkg_2)
-
-        rep_ignore_0 = /_bb\.(?:sv|v|vhd)/i
-        rep_ignore_1 = /_inst\.(?:sv|v|vhd)/i
-
-        rep_ignore = Regexp.union(rep_ignore_0,rep_ignore_1)
-
-        rep_initl_array = ["\\.hex","\\.mif","\\.iv",'alt_mem_phy_defines\.v']
-        rep_initl = Regexp.new(rep_initl_array.join('|'))
 
         case @name
-        when rep_tb
+        when REP_TB
             @typle = :tb
-        when rep_pkg
+        when REP_PKG
             @typle = :package
-        when rep_ignore
+        when REP_IGNORE
             @typle = :ignore
-        when rep_initl
+        when REP_INITL
             @typle = :initial
         else
             @typle = :normal
@@ -204,6 +206,7 @@ class HdlFile
     end
 
     def self.mv_initial_files_to(path)
+        $LOG.puts path
         @@initial_files.each { |inf| inf.cp_to_path(path) }
     end
 
@@ -365,6 +368,7 @@ end
 
 
 class GenDo
+    attr_accessor :company,:product,:language
 
     def initialize(*path_args)
 
@@ -378,6 +382,21 @@ class GenDo
             @root_paths << ModulesCollectPath.new(pp)
         end
         @root_paths.compact!
+        @company = nil
+        @product = nil
+        @language = 'verilog'
+    end
+
+    def company=(str)
+        @company = str.downcase
+    end
+
+    def product=(str)
+        @product = str.downcase
+    end
+
+    def language=(str)
+        @language = str.downcase
     end
 
     private
@@ -394,7 +413,7 @@ class GenDo
     def gen_lib_script # just for run sim
         rel = "#{(HdlFile.pkg_lib)? "-L #{HdlFile.pkg_lib}" : '' } "
         @root_paths.map do |rp|
-            rp.modules.map {|subm| rel += '-L prj_'+subm.module_name }
+            rp.modules.map {|subm| rel += ' -L prj_'+subm.module_name+' ' }
         end
         return rel
     end
@@ -411,25 +430,29 @@ class GenDo
         return rel+"\n"
     end
 
-    def gen_company_lib_script(company='altera',product="cyclone iv e",lang="verilog") # just for run sim
-        company.downcase!
-        product.downcase!
-        lang.downcase!
+    def gen_company_lib_script # just for run sim
         libs = []
-        if company == 'altera'
+        if @company == 'altera'
             libs = %w{220model altera_lnsim  altera_mf  altera}
-            if product =~ /cyclone\s*iv\s*e/
+
+            case @product
+            when /cyclone\s*iv\s*e/
                 libs.concat %w{cycloneive cycloneiii}
+            when /strix\s*iv/
+                libs.concat %w{strixive }
+            else
+                libs
             end
 
-            if lang == 'verilog'
+            if @language == 'verilog'
                 libs.map! {|l| l+'_ver'}
             end
-        elsif company == 'xilinx'
 
-            if lang == 'verilog'
+        elsif @company == 'xilinx'
+
+            if @language == 'verilog'
                 libs = %w{secureip unisims_ver unimacro_ver unifast_ver simprims_ver }
-            elsif lang == 'vhdl'
+            elsif @language == 'vhdl'
                 libs = %w{secureip unisims unimacro unifast  }
             end
         end
@@ -485,7 +508,7 @@ class GenDo
 end
 
 class ParseConf
-    attr_reader :code_paths,:modelsim_path,:conf_name,:ignore_items,:sim_modules,:target_do_path
+    attr_reader :code_paths,:modelsim_path,:conf_name,:ignore_items,:sim_modules,:target_do_path,:company,:language,:product
     def initialize(path_str)
         if File::exist?(path_str) && File::file?(path_str)
 
@@ -500,6 +523,9 @@ class ParseConf
         parse_modelsim_path
         parse_ignore
         parse_top_sim_modules
+        parse_company
+        parse_product
+        parse_language
         @target_do_path = File.join(File.dirname(File.expand_path(__FILE__)),'/.do_files')
         Dir::mkdir @target_do_path unless File::exist? @target_do_path
     end
@@ -572,16 +598,57 @@ class ParseConf
         end
     end
 
+    def self.define_parse_method(name,&block)
+        define_method name do
+            return unless @conf_block
+            yield
+        end
+        private name
+    end
+
+    def parse_company
+        rep = /COMPANY\s*:\s*(\w+)/
+        @conf_block.match(rep)
+        if $~
+            str = $1.strip
+            @company = str
+        end
+    end
+
+    def parse_language
+        rep = /LANGUAGE\s*:\s*(\w+)/
+        @conf_block.match(rep)
+        if $~
+            str = $1.strip
+            @language = str
+        end
+    end
+
+    def parse_product
+        rep = /PRODUCT\s*:\s*(.+)/
+        @conf_block.match(rep)
+        if $~
+            str = $1.strip
+            @product = str
+        end
+    end
+
+
 end
 
 class ShellFile
 
     def initialize(conf_file)
         @pconf = ParseConf.new(conf_file)
+        $LOG.puts "======="
+        $LOG.puts $conf_file
         @mt_path = File::join(@pconf.modelsim_path,'/.mt_log/.mtimes.txt')
         HdlFile.add_ignores(*@pconf.ignore_items)
         HdlFile.read_mtimes(@mt_path)
         @gd    = GenDo.new(*@pconf.code_paths)
+        @gd.company = @pconf.company
+        @gd.product = @pconf.product
+        @gd.language = @pconf.language
         @curr_sys = nil
     end
 
@@ -644,7 +711,7 @@ class ShellFile
         f.puts @gd.gen_complie_script
         f.close
         # HdlFile.write_mtimes(@mt_path)
-        # HdlFile.mv_initial_files_to(@pconf.modelsim_path)
+        HdlFile.mv_initial_files_to(@pconf.modelsim_path)
         return file_name
     rescue
         f.close
@@ -653,7 +720,11 @@ class ShellFile
 
 
     def gen_sh_file(name)
-        curr_sys = ENV["_system_type"].downcase
+        if ENV["_system_type"]
+            curr_sys = ENV["_system_type"].downcase
+        else
+            curr_sys = 'windows'
+        end
 
         if curr_sys == "linux"
             file_name = "#{name}.sh"
@@ -688,6 +759,17 @@ class ShellFile
         f.puts "exec #{create_sh_file_recompile}"
         f.puts "do #{create_recompile_do_script}"
         f.puts "exec #{create_sh_file_update_mtime}"
+        f.close
+    end
+
+    def gen_do_test
+        file_name = File.join(@pconf.modelsim_path,'test.do')
+        f = File.open(file_name,'w')
+        f.puts "echo #{'='*20}"
+        f.puts "echo CREATED BY --@--Young--@--"
+        f.puts "echo Have fun"
+        f.puts "echo #{'='*20}"
+        #f.puts "exec #{create_sh_file_recompile}"
         f.close
     end
 
@@ -768,16 +850,7 @@ class TestHdlFile
     end
 end
 
-$LOG = File.open('log.txt','w')
-END {
-    $LOG.close
-}
 
-def $LOG.unexpect(cond,str)
-    unless cond
-        $LOG.puts str
-    end
-end
 
 # nt = TestHdlFile.new
 
@@ -793,20 +866,38 @@ end
 # nt.test_gen_do_compile
 
 #### RUN SCRIPT #######
-$: << File::dirname(File::expand_path(__FILE__))
-$conf_file = 'auto_conf'
+spath = File::dirname(File::expand_path(__FILE__))
+$: << spath
+$conf_file = File.join(spath,'auto_conf')
+
+$LOG = File.open(File.join(spath,'log.txt'),'w')
+$LOG.puts "========#{Time.new}========="
+END {
+    $LOG.close
+}
+
+def $LOG.unexpect(cond,str)
+    unless cond
+        $LOG.puts str
+    end
+end
+
 if ARGV.empty?
     sf = ShellFile.new($conf_file)
     sf.gen_do_compile        #generate memtor_path:{compile.do} .do_files_path:{compile.do complie.sh update_mtime.sh}
     sf.gen_do_recompile      #generate memtor_path:{recompile.do} .do_files_path:{recompile.do recomplie.sh update_mtime.sh}
+    # sf.gen_do_test
 elsif ARGV[0] == "compile"
-    sf = ShellFile.new('auto_conf')
+    $LOG.puts "run compile"
+    sf = ShellFile.new($conf_file)
     sf.create_compile_do_script #generate .do_files_path:{compile.do}
     sf.update_mtime_file
 elsif ARGV[0] == "recompile"
-    sf = ShellFile.new('auto_conf')
+    $LOG.puts "run recompile"
+    sf = ShellFile.new($conf_file)
     sf.create_recompile_do_script #generate .do_files_path:{recompile.do}
     sf.update_mtime_file
 elsif ARGV[0] == "update_mtime"
+    $LOG.puts "run update_mtime"
     ShellFile.update_mtime_file $conf_file
 end
