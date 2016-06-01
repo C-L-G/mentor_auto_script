@@ -1,5 +1,2 @@
-========2016-05-30 17:12:37 +0800=========
-=======
-D:/Documents/GitHub/auto_script_for_mentor/mentor_auto_script/auto_conf
-E:/work/xilinx/video_board/Mentor
-E:/work/xilinx/video_board/Mentor
+========2016-06-01 17:52:23 +0800=========
+run recompile

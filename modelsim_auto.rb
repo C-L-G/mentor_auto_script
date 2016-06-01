@@ -21,7 +21,7 @@ class HdlFile
     REP_INITL_ARRAY = ["\\.hex","\\.mif","\\.iv",'alt_mem_phy_defines\.v',"\\.vh"]
     REP_INITL = Regexp.new(REP_INITL_ARRAY.join('|'))
 
-    attr_reader :typle,:mtime,:name,:hdl_typle,:full_name
+    attr_reader :typle,:mtime,:name,:hdl_typle,:full_name,:has_be_modified
     attr_accessor :sim_top
     @@pkg_files = []
     @@initial_files = []
@@ -47,6 +47,8 @@ class HdlFile
         if pair
             unless pair[1].eql? @mtime  ## be modified
                 @has_be_modified = true
+                @@file_and_mtimes.delete(pair)
+                @@file_and_mtimes << [@full_name,@mtime]
             else
                 @has_be_modified = false
             end
@@ -95,7 +97,6 @@ class HdlFile
         else
             return nil
         end
-
         if @typle != :package
             "#{com} -incr #{@full_name} #{@@pkg_lib? "-L #{@@pkg_lib}" : '' }"
         else
@@ -206,7 +207,6 @@ class HdlFile
     end
 
     def self.mv_initial_files_to(path)
-        $LOG.puts path
         @@initial_files.each { |inf| inf.cp_to_path(path) }
     end
 
@@ -244,7 +244,7 @@ class HdlFile
     end
 
     def self.add_tb_top(*args)
-        @@tb_tops.concat! args
+        @@tb_tops.concat args
     end
 
 end
@@ -273,7 +273,7 @@ class ModulesCollectPath
         @root_hdl_files.compact!
     end
 
-    def gen_do_script
+    def gen_do_script(re_do=false)
         rel = "\n##=============ROOT==================\n"
         rel += "## #{root_path} root_file: #{root_hdl_files.length} \n"
         rel += "##---------------------------------------\n"
@@ -284,7 +284,7 @@ class ModulesCollectPath
             end
         end
         modules.each do |m|
-            rel += m.gen_do_script
+            rel += m.gen_do_script(re_do)
         end
         return rel
     end
@@ -336,17 +336,23 @@ class ModulePath
     end
 
 
-    def gen_do_script
+    def gen_do_script(re_do=false)
         rel = "##=============#{module_name}==================\n"
         rel += "## #{module_name} file: #{@hdl_files.length} \n"
-        rel += "ensure_lib		./prj_#{module_name}/\n" +
-                "vmap prj_#{module_name} ./prj_#{module_name}/\n\n"
+        unless re_do
+            rel += "ensure_lib		./prj_#{module_name}/\n" +
+                    "vmap prj_#{module_name} ./prj_#{module_name}/\n\n"
+        end
 
         @hdl_files.each do |hf|
             if hf.typle != :package
                 hf_script = hf.gen_do_script
                 if hf_script
-                    rel += hf_script + " -work prj_#{module_name} \n"
+                    unless hf.sim_top
+                        rel += hf_script + " -work prj_#{module_name} \n"
+                    else
+                        rel += hf_script + "  \n"
+                    end
                 end
             end
         end
@@ -388,15 +394,15 @@ class GenDo
     end
 
     def company=(str)
-        @company = str.downcase
+        @company = str.downcase if str
     end
 
     def product=(str)
-        @product = str.downcase
+        @product = str.downcase if str
     end
 
     def language=(str)
-        @language = str.downcase
+        @language = str.downcase if str
     end
 
     private
@@ -467,20 +473,24 @@ class GenDo
         hrel = "\n##==========================\n"
         hrel += "###   vsim script\n"
         rel = ''
-        tb_modules.each do |tbm|
-            @root_paths.each do |rp|
-                rp.modules.each do |subm|
-                    tb_names = subm.has_any_tb().map{|hf| hf.name.sub(/\.\w+?$/,'') }
-                    if tb_names.include? tbm
-                        rel += " prj_#{subm.module_name}.#{tbm} "
-                    end
-                end
+        # tb_modules.each do |tbm|
+        #     @root_paths.each do |rp|
+        #         rp.modules.each do |subm|
+        #             tb_names = subm.has_any_tb().map{|hf| hf.name.sub(/\.\w+?$/,'') }
+        #             if tb_names.include? tbm
+        #                 rel += " prj_#{subm.module_name}.#{tbm} "
+        #             end
+        #         end
+        #
+        #         tb_names = rp.root_hdl_files.map {|hf| hf.name.sub(/\.\w+?$/,'') }
+        #         if tb_names.include? tbm
+        #             rel += " work.#{tbm} "
+        #         end
+        #     end
+        # end
 
-                tb_names = rp.root_hdl_files.map {|hf| hf.name.sub(/\.\w+?$/,'') }
-                if tb_names.include? tbm
-                    rel += " work.#{tbm} "
-                end
-            end
+        tb_modules.each do |tbm|
+            rel += " work.#{tbm} "
         end
 
         hrel + "vsim #{gen_lib_script} #{gen_company_lib_script} -novopt #{rel}"
@@ -489,11 +499,11 @@ class GenDo
 
     public
 
-    def gen_complie_script
+    def gen_complie_script(re_do=false)
         rel = head_sign
         rel += gen_pkg_script
         @root_paths.each do |rp|
-            rel += rp.gen_do_script
+            rel += rp.gen_do_script(re_do)
         end
         return rel
     end
@@ -640,11 +650,10 @@ class ShellFile
 
     def initialize(conf_file)
         @pconf = ParseConf.new(conf_file)
-        $LOG.puts "======="
-        $LOG.puts $conf_file
         @mt_path = File::join(@pconf.modelsim_path,'/.mt_log/.mtimes.txt')
         HdlFile.add_ignores(*@pconf.ignore_items)
         HdlFile.read_mtimes(@mt_path)
+        HdlFile.add_tb_top(*@pconf.sim_modules)
         @gd    = GenDo.new(*@pconf.code_paths)
         @gd.company = @pconf.company
         @gd.product = @pconf.product
@@ -708,7 +717,7 @@ class ShellFile
     def create_recompile_do_script
         file_name = File.join(@pconf.target_do_path,'recompile.do')
         f = File.open(file_name,'w')
-        f.puts @gd.gen_complie_script
+        f.puts @gd.gen_complie_script(re_do=true)
         f.close
         # HdlFile.write_mtimes(@mt_path)
         HdlFile.mv_initial_files_to(@pconf.modelsim_path)
@@ -891,12 +900,12 @@ elsif ARGV[0] == "compile"
     $LOG.puts "run compile"
     sf = ShellFile.new($conf_file)
     sf.create_compile_do_script #generate .do_files_path:{compile.do}
-    sf.update_mtime_file
+    #sf.update_mtime_file
 elsif ARGV[0] == "recompile"
     $LOG.puts "run recompile"
     sf = ShellFile.new($conf_file)
     sf.create_recompile_do_script #generate .do_files_path:{recompile.do}
-    sf.update_mtime_file
+    #sf.update_mtime_file
 elsif ARGV[0] == "update_mtime"
     $LOG.puts "run update_mtime"
     ShellFile.update_mtime_file $conf_file
