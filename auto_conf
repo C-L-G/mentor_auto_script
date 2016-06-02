@@ -103,7 +103,7 @@ Modelsim_PATH:E:\work\xilinx\video_board\modelsim\lvds
 
 SIM_TOP_MODULES:{
 glbl
-tb_lvds_rx_dly
+tb_lvds_rx_1_to_n
 }
 
 COMPANY:XILINX

@@ -292,7 +292,7 @@ class ModulesCollectPath
 end
 
 class ModulePath
-    attr_reader :root_path,:module_name,:hdl_files,:tb_hdl_files
+    attr_reader :root_path,:module_name,:hdl_files,:tb_hdl_files,:skip_compile
     def initialize(path_str)
         unless File::exist?(path_str) || File::directory?(path_str)
             puts "Faile path #{path_str}"
@@ -301,6 +301,7 @@ class ModulePath
         @root_path = path_str
         @module_name = File::basename(path_str)
         @hdl_files = search_files(@root_path)
+        @skip_compile = @hdl_files.empty?
     end
 
     def search_files(path_str)
@@ -337,6 +338,7 @@ class ModulePath
 
 
     def gen_do_script(re_do=false)
+        return '' if @skip_compile
         rel = "##=============#{module_name}==================\n"
         rel += "## #{module_name} file: #{@hdl_files.length} \n"
         unless re_do
@@ -418,8 +420,10 @@ class GenDo
 
     def gen_lib_script # just for run sim
         rel = "#{(HdlFile.pkg_lib)? "-L #{HdlFile.pkg_lib}" : '' } "
-        @root_paths.map do |rp|
-            rp.modules.map {|subm| rel += ' -L prj_'+subm.module_name+' ' }
+        @root_paths.each do |rp|
+            rp.modules.each do |subm|
+                rel += ' -L prj_'+subm.module_name+' ' unless  subm.skip_compile
+            end
         end
         return rel
     end
