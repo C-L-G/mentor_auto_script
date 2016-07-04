@@ -30,7 +30,7 @@ class HdlFile
     @@pkg_lib = nil
     @@file_and_mtimes = []
     @@tb_tops = []
-    REP_HDL = /\.(?:v|sv|hdl|vh|iv|hex|mif)$/i
+    REP_HDL = /\.(?:v|sv|vhd|vh|iv|hex|mif)$/i
     # REP_IGNORE = /(?:_bb\.(?:v|sv|hdl|vh))$/i
 
     def initialize(path_str)
@@ -79,7 +79,7 @@ class HdlFile
         case @name
         when /\.v$/i
             @hdl_typle = :verilog
-        when /\.hdl$/i
+        when /\.vhd$/i
             @hdl_typle = :vhdl
         when /\.sv$/i
             @hdl_typle = :systemverilog
@@ -91,16 +91,20 @@ class HdlFile
     def gen_do_script
         return nil unless @has_be_modified
         if @hdl_typle == :verilog || @hdl_typle == :systemverilog
-            com = 'vlog'
+            com = 'vlog -incr '
         elsif @hdl_typle == :vhdl
-            com = 'com'
+            com = 'vcom'
         else
             return nil
         end
         if @typle != :package
-            "#{com} -incr #{@full_name} #{@@pkg_lib? "-L #{@@pkg_lib}" : '' }"
+            if @hdl_typle == :verilog || @hdl_typle == :systemverilog
+                "#{com} #{@full_name} #{@@pkg_lib? "-L #{@@pkg_lib}" : '' }"
+            elsif @hdl_typle == :vhdl
+                "#{com} #{@full_name}"
+            end
         else
-            "#{com} -incr #{@full_name} -work #{@@pkg_lib}"
+            "#{com} #{@full_name} -work #{@@pkg_lib}"
         end
     end
 

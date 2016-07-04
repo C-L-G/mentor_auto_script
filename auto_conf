@@ -115,4 +115,35 @@ LANGUAGE:verilog
 ENDCONF:PRJ_lvds_delay
 #####################################################
 
-USE_CONFIGURE: PRJ_lvds_delay
+######################################################
+CONF: PRJ_pin_map
+CODE_PATHS:{
+E:\work\xilinx\video_board\rtl
+E:\work\xilinx\video_board\xapp585\
+E:\work\xilinx\video_board\sim
+E:\work\xilinx\video_board\fbg676_3\video_board\video_board.srcs\sources_1\ip
+E:\work\newboard_sensor_ISP_1124\sim\lvds
+E:\work\newboard_sensor_ISP_1124\sim\clock_block
+}
+
+IGNORE:{
+VHDL\
+}
+
+Modelsim_PATH:E:\work\xilinx\video_board\modelsim\lvds
+
+SIM_TOP_MODULES:{
+glbl
+top_pin_tb
+}
+
+COMPANY:XILINX
+
+PRODUCT:Artix7
+
+LANGUAGE:verilog
+
+ENDCONF:PRJ_pin_map
+#####################################################
+
+USE_CONFIGURE: PRJ_pin_map
