@@ -1,149 +1,40 @@
 
-CONF: PRJ_0
+### #### ###
+CONF: PRJ_top
 CODE_PATHS:{
-#E:\work\newboard_sensor_ISP_1113\rtl
-/home/young/work/ruby/cordic
-/home/young/work/ruby/general-cordic-rotaion
-/home/young/work/ruby/file-class-package
-}
-
-IGNORE:{
-newboard_sensor_ISP_1113
-woek/
-}
-
-Modelsim_PATH:/home/young/work/mentor
-
-SIM_TOP_MODULES:{
-image_file_package_tb
-X_Y_to_angle_tb
-}
-
-COMPANY:Altera
-
-PRODUCT:Cyclone iv e
-
-ENDCONF:PRJ_0
-
-######################################################
-CONF: PRJ_1
-CODE_PATHS:{
-E:\work\xilinx\video_board\rtl
-E:\work\xilinx\video_board\xapp585\
-E:\work\xilinx\video_board\sim
-E:\work\xilinx\video_board\fbg676_3\video_board\video_board.srcs\sources_1\ip
-}
-
-IGNORE:{
-VHDL\
-}
-
-Modelsim_PATH:E:\work\xilinx\video_board\Mentor
-
-SIM_TOP_MODULES:{
-
-}
-
-COMPANY:XILINX
-
-PRODUCT:Artix7
-
-LANGUAGE:verilog
-
-ENDCONF:PRJ_1
-#####################################################
-
-######################################################
-CONF: PRJ_lvds
-CODE_PATHS:{
-E:\work\xilinx\video_board\rtl
-E:\work\xilinx\video_board\xapp585\
-E:\work\xilinx\video_board\sim
-#E:\work\xilinx\video_board\fbg676_3\video_board\video_board.srcs\sources_1\ip
-E:\work\newboard_sensor_ISP_1124\sim\lvds
+#E:\work\xilinx\AXI4\MIG_VDMA_AXI4\MIG_VDMA_AXI4.srcs\sources_1\ip
+E:\work\xilinx\AXI4\MIG_VDMA_AXI4\RTL
+E:\work\xilinx\AXI4\MIG_VDMA_AXI4\SIM
+E:\work\newboard_sensor_ISP_1124\rtl\video_sync_generator
 E:\work\newboard_sensor_ISP_1124\sim\clock_block
+E:\work\xilinx\AXI4\AXI4_BFM
+E:\work\xilinx\AXI4\MIG_VDMA_AXI4\MIG_VDMA_AXI4.srcs\sources_1\ip\DDR3_IP_CORE\DDR3_IP_CORE\example_design\sim
+E:\work\xilinx\AXI4\MIG_VDMA_AXI4\MIG_VDMA_AXI4.ip_user_files\sim_scripts\DDR3_IP_CORE\modelsim
 }
 
 IGNORE:{
-VHDL\
+Axi4Agents.sv
+Axi4BFMs.sv
+Axi4Drivers.sv
+video_sync_generator.v
+sim_tb_top.v
 }
 
-Modelsim_PATH:E:\work\xilinx\video_board\modelsim\lvds
+Modelsim_PATH:E:\work\xilinx\AXI4\MIG_VDMA_AXI4\Mentor
 
 SIM_TOP_MODULES:{
-glbl
-tb_lvds_simple_top
 }
 
-COMPANY:XILINX
+EVN:vivado
 
-PRODUCT:Artix7
+SYNTHESIS_PRJ_PATH:E:\work\xilinx\AXI4\MIG_VDMA_AXI4
 
-LANGUAGE:verilog
+COMPANY:xilinx
 
-ENDCONF:PRJ_lvds
-#####################################################
+PRODUCT:atrix 7
 
-######################################################
-CONF: PRJ_lvds_delay
-CODE_PATHS:{
-E:\work\xilinx\video_board\rtl
-E:\work\xilinx\video_board\xapp585\
-E:\work\xilinx\video_board\sim
-#E:\work\xilinx\video_board\fbg676_3\video_board\video_board.srcs\sources_1\ip
-E:\work\newboard_sensor_ISP_1124\sim\lvds
-E:\work\newboard_sensor_ISP_1124\sim\clock_block
-}
+ENDCONF:PRJ_top
 
-IGNORE:{
-VHDL\
-}
 
-Modelsim_PATH:E:\work\xilinx\video_board\modelsim\lvds
 
-SIM_TOP_MODULES:{
-glbl
-tb_lvds_rx_1_to_n
-}
-
-COMPANY:XILINX
-
-PRODUCT:Artix7
-
-LANGUAGE:verilog
-
-ENDCONF:PRJ_lvds_delay
-#####################################################
-
-######################################################
-CONF: PRJ_pin_map
-CODE_PATHS:{
-E:\work\xilinx\video_board\rtl
-E:\work\xilinx\video_board\xapp585\
-E:\work\xilinx\video_board\sim
-E:\work\xilinx\video_board\fbg676_3\video_board\video_board.srcs\sources_1\ip
-E:\work\newboard_sensor_ISP_1124\sim\lvds
-E:\work\newboard_sensor_ISP_1124\sim\clock_block
-}
-
-IGNORE:{
-VHDL\
-}
-
-Modelsim_PATH:E:\work\xilinx\video_board\modelsim\lvds
-
-SIM_TOP_MODULES:{
-glbl
-top_pin_tb
-}
-
-COMPANY:XILINX
-
-PRODUCT:Artix7
-
-LANGUAGE:verilog
-
-ENDCONF:PRJ_pin_map
-#####################################################
-
-USE_CONFIGURE: PRJ_pin_map
+USE_CONFIGURE: PRJ_top

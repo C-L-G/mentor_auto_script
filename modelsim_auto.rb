@@ -7,9 +7,13 @@ class HdlFile
 
     REP_TB = Regexp.union(REP_TB_0,REP_TB_1)
 
-    REP_PKG_0 = /pkg\.(?:sv|vhd)$/i
-    REP_PKG_1 = /^pkg\w*\.(?:sv|vhd)$/i
-    REP_PKG_2 = /package\w*\.(?:sv|vhd)$/i
+    # REP_PKG_0 = /pkg\.(?:sv|vhd)$/i
+    # REP_PKG_1 = /^pkg\w*\.(?:sv|vhd)$/i
+    # REP_PKG_2 = /package\w*\.(?:sv|vhd)$/i
+
+    REP_PKG_0 = /pkg\.(?:sv|v)$/i
+    REP_PKG_1 = /^pkg\w*\.(?:sv|v)$/i
+    REP_PKG_2 = /package\w*\.(?:sv|v)$/i
 
     REP_PKG = Regexp.union(REP_PKG_0,REP_PKG_1,REP_PKG_2)
 
@@ -19,7 +23,7 @@ class HdlFile
     REP_IGNORE = Regexp.union(REP_IGNORE_0,REP_IGNORE_1)
 
     REP_INITL_ARRAY = ["\\.hex","\\.mif","\\.iv",'alt_mem_phy_defines\.v',"\\.vh"]
-    REP_INITL = Regexp.new(REP_INITL_ARRAY.join('|'))
+    REP_INITL = Regexp.new("(?-i:#{REP_INITL_ARRAY.join('|')})$")
 
     attr_reader :typle,:mtime,:name,:hdl_typle,:full_name,:has_be_modified
     attr_accessor :sim_top
@@ -104,7 +108,7 @@ class HdlFile
                 "#{com} #{@full_name}"
             end
         else
-            "#{com} #{@full_name} -work #{@@pkg_lib}"
+            "#{com} #{@full_name} -work #{@@pkg_lib}\n"
         end
     end
 
@@ -296,6 +300,7 @@ class ModulesCollectPath
 end
 
 class ModulePath
+    @@catch_vhdl_lib = nil
     attr_reader :root_path,:module_name,:hdl_files,:tb_hdl_files,:skip_compile
     def initialize(path_str)
         unless File::exist?(path_str) || File::directory?(path_str)
@@ -304,11 +309,12 @@ class ModulePath
         end
         @root_path = path_str
         @module_name = File::basename(path_str)
+        @vhdl_libs = []
         @hdl_files = search_files(@root_path)
         @skip_compile = @hdl_files.empty?
     end
 
-    def search_files(path_str)
+    def search_files(path_str,catch_vhdl_lib = @@catch_vhdl_lib)
         sub_path = path_str
         list = Dir::entries(path_str) - %w{. ..}
 
@@ -334,16 +340,56 @@ class ModulePath
         end
         sub_list = []
         dir_list.each do |d|
-            sub_list.concat(search_files(d))
+            unless catch_vhdl_lib
+                sub_list.concat(search_files(d,false))
+            else
+                if File.basename(d) =~ catch_vhdl_lib ## catch library
+                    @vhdl_libs << d
+                    # $LOG.once(true) { $LOG.puts d }
+                else
+                    sub_list.concat(search_files(d,false))
+                end
+            end
         end
 
         return hdlfiles.concat(sub_list)
     end
 
+    def gen_vhdl_lib_for_xilinx(re_do=false)
+        return ""  if @skip_compile
+        rel = "\n##==========>>> VHDL LIBs <<<=================\n"
+        @vhdl_libs.each do |lib_path|
+            lib_name = File.basename(lib_path)
+            rel += "##=============#{lib_name}==================\n"
+
+            unless re_do
+                rel += "ensure_lib		#{lib_name}/\n" +
+                        "vmap #{lib_name} ./#{lib_name}/\n\n"
+            end
+
+
+            hdl_files = search_files(lib_path,false)
+            hdl_files.each do |hf|
+                if hf_script = hf.gen_do_script
+                    rel += hf_script + " -work #{lib_name}\n"
+                end
+            end
+        end
+        return rel+"##==========<<< VHDL LIBs >>>=================\n"
+    end
+
+    def vhdl_libs
+        @vhdl_libs.map do |l|
+            File.basename(l)
+        end
+    end
 
     def gen_do_script(re_do=false)
         return '' if @skip_compile
         rel = "##=============#{module_name}==================\n"
+
+        rel += gen_vhdl_lib_for_xilinx(re_do) if @@catch_vhdl_lib && !(@vhdl_libs.empty?)
+
         rel += "## #{module_name} file: #{@hdl_files.length} \n"
         unless re_do
             rel += "ensure_lib		./prj_#{module_name}/\n" +
@@ -376,11 +422,16 @@ class ModulePath
     #     args.each do |a|
     #         @hdl_files.each do |hf|
     #             hf.sim_top
+
+    def self.catch_vhdl_lib=(rep)
+        @@catch_vhdl_lib = Regexp.new(rep)
+        $LOG.puts "catch vhdl libraries enable (#{@@catch_vhdl_lib})"
+    end
 end
 
 
 class GenDo
-    attr_accessor :company,:product,:language
+    attr_accessor :company,:product,:language,:vivado_prj
 
     def initialize(*path_args)
 
@@ -397,6 +448,10 @@ class GenDo
         @company = nil
         @product = nil
         @language = 'verilog'
+    end
+
+    def add_vivado(path)
+        @vivado_prj = Vivado.new(path)
     end
 
     def company=(str)
@@ -426,7 +481,13 @@ class GenDo
         rel = "#{(HdlFile.pkg_lib)? "-L #{HdlFile.pkg_lib}" : '' } "
         @root_paths.each do |rp|
             rp.modules.each do |subm|
-                rel += ' -L prj_'+subm.module_name+' ' unless  subm.skip_compile
+                unless subm.vhdl_libs.empty?
+                    vhdl_libs_sc = " -L "+subm.vhdl_libs.join(" -L ")
+                else
+                    vhdl_libs_sc = ''
+                end
+
+                rel += (' -L prj_'+subm.module_name + vhdl_libs_sc + ' ') unless  subm.skip_compile
             end
         end
         return rel
@@ -469,6 +530,17 @@ class GenDo
             elsif @language == 'vhdl'
                 libs = %w{secureip unisims unimacro unifast  }
             end
+
+            if @vivado_prj
+                unless @vivado_prj.ip_module_names.empty?
+                    vivado_libs = @vivado_prj.ip_module_names.map{|n| 'vivado_ip_'+n}
+                else
+                    vivado_libs = []
+                end
+
+                libs.concat vivado_libs
+                libs.concat @vivado_prj.map_libs
+            end
         end
         if libs.empty?
             return ""
@@ -509,6 +581,7 @@ class GenDo
 
     def gen_complie_script(re_do=false)
         rel = head_sign
+        rel += gen_vivado_compile_script if @vivado_prj
         rel += gen_pkg_script
         @root_paths.each do |rp|
             rel += rp.gen_do_script(re_do)
@@ -522,11 +595,23 @@ class GenDo
         return rel
     end
 
+    def gen_vivado_compile_script
+        rel = '##================= vivado script ===================='+"\n"
+        unless @vivado_prj
+            $LOG.puts "Don't exit Vivado Project "
+            return ''
+        end
+        @vivado_prj.need_run_cmp_files.each do |cf|
+            rel += "do #{cf}\n"
+        end
+        return rel
+    end
 
 end
 
 class ParseConf
     attr_reader :code_paths,:modelsim_path,:conf_name,:ignore_items,:sim_modules,:target_do_path,:company,:language,:product
+    attr_reader :environment,:synthesis_path
     def initialize(path_str)
         if File::exist?(path_str) && File::file?(path_str)
 
@@ -544,6 +629,8 @@ class ParseConf
         parse_company
         parse_product
         parse_language
+        parse_environment
+        parse_synthesis_path
         @target_do_path = File.join(File.dirname(File.expand_path(__FILE__)),'/.do_files')
         Dir::mkdir @target_do_path unless File::exist? @target_do_path
     end
@@ -651,6 +738,19 @@ class ParseConf
         end
     end
 
+    def match(rep)
+        if rep.match(@conf_block,0)
+            return $1.strip
+        end
+    end
+
+    def parse_environment
+        @environment = match(/EVN[ |\t]*:[ |\t]*(.+)/)
+    end
+
+    def parse_synthesis_path
+        @synthesis_path = match(/SYNTHESIS_PRJ_PATH[ |\t]*:[ |\t]*(.+)/)
+    end
 
 end
 
@@ -659,14 +759,34 @@ class ShellFile
     def initialize(conf_file)
         @pconf = ParseConf.new(conf_file)
         @mt_path = File::join(@pconf.modelsim_path,'/.mt_log/.mtimes.txt')
-        HdlFile.add_ignores(*@pconf.ignore_items)
-        HdlFile.read_mtimes(@mt_path)
-        HdlFile.add_tb_top(*@pconf.sim_modules)
+        # HdlFile.add_ignores(*@pconf.ignore_items)
+        # HdlFile.read_mtimes(@mt_path)
+        # HdlFile.add_tb_top(*@pconf.sim_modules)
+        # if @pconf.company =~ /xilinx/i
+        #     ModulePath.catch_vhdl_lib=true
+        # end
+        init_modules
         @gd    = GenDo.new(*@pconf.code_paths)
         @gd.company = @pconf.company
         @gd.product = @pconf.product
         @gd.language = @pconf.language
         @curr_sys = nil
+
+        if @pconf.environment =~ /vivado/i
+            if sp = @pconf.synthesis_path
+                @gd.add_vivado(sp)
+            end
+        end
+
+    end
+
+    def init_modules
+        HdlFile.add_ignores(*@pconf.ignore_items)
+        HdlFile.read_mtimes(@mt_path)
+        HdlFile.add_tb_top(*@pconf.sim_modules)
+        if @pconf.company =~ /xilinx/i
+            ModulePath.catch_vhdl_lib= Regexp.union(/^lib.+_v\d{1,2}_\d{1,2}_\d{1,2}$/i,/blk_mem_gen_v8_3_3/)
+        end
     end
 
     def gen_modelsim_do_script
@@ -683,6 +803,7 @@ class ShellFile
 
     def update_mtime_file
         HdlFile.write_mtimes(@mt_path)
+        update_vivado_mtime_file if @gd.vivado_prj
     end
 
     def create_sh_file_compile
@@ -791,7 +912,6 @@ class ShellFile
     end
 
 
-
     def self.update_mtime_file(conf_file)
         pconf = ParseConf.new(conf_file)
         mt_path = File::join(pconf.modelsim_path,'/.mt_log/.mtimes.txt')
@@ -800,6 +920,20 @@ class ShellFile
         #HdlFile.read_mtimes(@mt_path)
         pconf.code_paths.each {|pp| ModulesCollectPath.new(pp) }
         HdlFile.write_mtimes(mt_path)
+
+        if pconf.environment =~ /vivado/i
+            if sp = pconf.synthesis_path
+                Vivado.new(sp).update_mtimes_file
+            end
+        end
+    end
+
+    def update_vivado_mtime_file
+        unless @gd.vivado_prj
+            $LOG.puts "Don't exit Vivado Project "
+            return
+        end
+        @gd.vivado_prj.update_mtimes_file
     end
 
 
@@ -868,6 +1002,170 @@ class TestHdlFile
 end
 
 
+module FileMTime
+
+    def read_mtimes(mfile)
+        rep = /(?<path>\S+)\s+(?<mtime>.+)/
+        files_mtime_lines = []
+        file_mtime_pair = []
+        if File::exist? mfile
+            File.open(mfile,'r'){|f| files_mtime_lines = f.readlines}
+        else
+            $LOG.puts "I have to create #{mfile}" if $LOG
+            dirname = File.dirname(mfile)
+            Dir::mkdir(dirname) unless File::exist?(dirname)
+            File.open(mfile,'w'){|f| f.puts ''}
+        end
+        files_mtime_lines.each do |l|
+            mch = l.match(rep)
+            if mch
+                file_mtime_pair << [mch[:path],mch[:mtime].strip]
+            end
+        end
+        @file_and_mtimes = file_mtime_pair
+        return file_mtime_pair
+    end
+
+    def write_mtimes(mfile)
+        f = File.open(mfile,'w')
+        @file_and_mtimes.each do |pair|
+            f.print pair[0]+'  '+pair[1].to_s+"\n"
+        end
+        f.close
+    rescue
+        f.close
+        $LOG.puts "Can't write to file: #{mfile}" if $LOG
+    end
+
+    def file_modified?(file_full_path)
+        return true unless File.exist? file_full_path
+        curr_mt = File.mtime(file_full_path).to_s
+
+        if last_mt_pair = @file_and_mtimes.assoc(file_full_path)
+            if last_mt_pair[1] == curr_mt
+                return false
+            else
+                return true
+            end
+        else
+            return true
+        end
+    end
+
+    def update_mtimes(file_full_path)
+        return nil  unless File.exist? file_full_path
+
+        mt = File.mtime(file_full_path).to_s
+        if last_mt_pair = @file_and_mtimes.assoc(file_full_path)
+            last_mt_pair[1] = mt
+        else
+            @file_and_mtimes << ["#{file_full_path}",mt]
+        end
+
+        return mt
+    end
+
+
+end
+
+
+## synthesis project
+class Vivado
+    include FileMTime
+
+    @@convert_path = File.join(File.dirname(File.expand_path(__FILE__)),'/.do_files')
+    @@mt_path = File.join(File.dirname(File.expand_path(__FILE__)),'/.do_files/.vivado_mtimes.txt')
+    attr_reader :modelsim_compile_files,:ip_module_names,:map_libs
+    def initialize(path)
+        @path = path
+        @prj_name = File.basename(path)
+        @ip_module_names = []
+        @need_run_cmp_files = []
+        @map_libs = []
+        @ip_module_names = get_module_names
+        read_mtimes(@@mt_path)
+        #
+        get_all_modelsim_compile_files
+        # write_mtimes(@@mt_path)
+    end
+
+    def need_run_cmp_files
+        # read_mtimes(@@mt_path)
+        # get_all_modelsim_compile_files
+        @need_run_cmp_files
+    end
+
+    def get_module_names
+        vivado_ip_user_files_path = Dir.entries(@path).select{|d| d == @prj_name+'.ip_user_files'}
+        return if vivado_ip_user_files_path.empty?
+        @vivado_ip_user_files_path = File.join(@path,vivado_ip_user_files_path[0]).gsub("\\",'/')
+        @sim_scripts_path = File.join(@vivado_ip_user_files_path,'sim_scripts').gsub("\\",'/')
+        return unless File.exist?(@sim_scripts_path)
+
+        @ip_module_names |= Dir.entries(@sim_scripts_path) - %w{. ..}
+    end
+
+    def get_all_modelsim_compile_files(convert_enable = true)
+
+        sim_modules = @ip_module_names
+        com_files = sim_modules.map do |sm|
+            cm_f = File.join(@sim_scripts_path,sm,'modelsim','compile.do')
+            [sm,cm_f]
+
+            parse_vivado_map_libs(File.open(cm_f){|f| f.read })
+
+            if file_modified?(cm_f)
+                update_mtimes(cm_f)
+                @need_run_cmp_files |= [convert_vivado_compile_file(sm,cm_f)] if convert_enable
+            end
+        end
+        @modelsim_compile_files = com_files.compact!
+    end
+
+    def convert_vivado_compile_file(sub_name,file_path)
+
+        all_str = File.open(file_path,'r'){|f| f.read }
+
+        all_str.gsub!('vlog -work xil_defaultlib "glbl.v"','')
+
+        all_str.gsub!("xil_defaultlib","vivado_ip_#{sub_name}")
+        all_str.gsub!('../../..',@vivado_ip_user_files_path)
+
+        convert_file = File.join(@@convert_path,"convert_#{sub_name}.do")
+        File.open(convert_file,'w') do |f|
+            f.puts all_str
+        end
+
+        return convert_file
+    end
+
+    def parse_vivado_map_libs(str)
+        rep = /^vmap\s+(\w+)\s+.+?\n/
+        libs_array = str.scan(rep)
+        # $LOG.puts libs_array
+        @map_libs |= (libs_array.map{|l| l[0] } - %w{xil_defaultlib}) unless libs_array.empty?
+    end
+
+
+    def update_mtimes_file
+        read_mtimes(@@mt_path)
+        get_all_modelsim_compile_files(convert_enable=false)
+        write_mtimes(@@mt_path)
+        $LOG.puts "update vivado mtimes"
+    end
+
+    def proc_glbl_file(path)
+        unless @have_done
+            glbl_path = File.join(path,'glbl.v')
+            File.exist? glbl_path
+            @have_done = true
+            return "vlog -work work #{glbl_path.gsub("\\",'/')}\n"
+        end
+    end
+
+end
+
+
 
 # nt = TestHdlFile.new
 
@@ -899,11 +1197,37 @@ def $LOG.unexpect(cond,str)
     end
 end
 
+begin
+    c = nil
+    x = lambda do |condition,block|
+        unless c
+            if condition
+                c = true
+                block.call
+            end
+        end
+    end
+
+    $LOG.instance_eval do
+        define_singleton_method(:once) do |condition,&block|
+            $LOG.puts x.call(condition,block).to_s
+        end
+    end
+end
+
+
+
 if ARGV.empty?
-    sf = ShellFile.new($conf_file)
-    sf.gen_do_compile        #generate memtor_path:{compile.do} .do_files_path:{compile.do complie.sh update_mtime.sh}
-    sf.gen_do_recompile      #generate memtor_path:{recompile.do} .do_files_path:{recompile.do recomplie.sh update_mtime.sh}
-    # sf.gen_do_test
+    begin
+        sf = ShellFile.new($conf_file)
+        sf.gen_do_compile        #generate memtor_path:{compile.do} .do_files_path:{compile.do complie.sh update_mtime.sh}
+        sf.gen_do_recompile      #generate memtor_path:{recompile.do} .do_files_path:{recompile.do recomplie.sh update_mtime.sh}
+        # sf.gen_do_test
+    # rescue Exception => e
+    #     puts e.message
+    #     puts e.backtrace.inspect
+    #     sleep(5)
+    end
 elsif ARGV[0] == "compile"
     $LOG.puts "run compile"
     sf = ShellFile.new($conf_file)
